@@ -1,4 +1,4 @@
-# Pacman - Capture the Flag: In The Fridge
+# Pacman - Capture the Flag: In The Fridge HALLO ARNO
 
 Deze repo dient als inzending voor het toernooi "Pacman - Capture the Flag".
 In `my_team.py` werd(en) de klasse(n) geïmplementeerd waarmee een team van twee agents geïnstantieerd kan worden in het `capture-the-flag` framework.
