@@ -8,16 +8,16 @@ In `my_team.py` werd(en) de klasse(n) geïmplementeerd waarmee een team van twee
 ### Studiedeel
 - **Opleiding:** [Bachelor in de artificiële intelligentie](https://caliweb.vub.be/?page=program&id=00721)
 - **Studiedeel:** [AI Programmeerproject](https://caliweb.vub.be/?page=course-offers&id=011970)
-- **Academiejaar:** _[academiejaar]_
+- **Academiejaar:** _[2025-2026]_
 - **Onderwijsteam:** Lynn Houthuys, Arno Temmerman
 
 ### Groepsleden
-- Student 1 Naam - e-mail - Github id
-- Student 2 Naam - e-mail - Github id
+- Student 1 Jules Berghmans - jules.maarten.saskia.berghmans@vub.be - [Github id](https://github.com/Gulezz)
+- Student 2 Ward Segers - Ward.Kristof.Caroline.Segers@vub.be - [Github id](https://github.com/Wakie26)
 
 
 ## 📚 Documentatie
-Om dit team van agents uit te proberen in een spel "Capture the Flag" moet je in eerste instantie het `capture-the-flag` framework gedownload hebben van Canvas of van volgende [GitHub repo]().
+Om dit team van agents uit te proberen in een spel "Capture the Flag" moet je in eerste instantie het `capture-the-flag` framework gedownload hebben van Canvas of van volgende [GitHub repo](https://github.com/Wakie26/In-The-Fridge).
 Vervolgens raden we aan om de huidige repo (degene waar je nu de README van leest) te clonen/downloaden en als "team-map" te plaatsen in de `agents/` directory van het framwork.
 
 ```
