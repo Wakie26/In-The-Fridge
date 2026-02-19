@@ -34,7 +34,7 @@ from util import nearest_point
 #################
 
 def create_team(first_index, second_index, is_red,
-                first='ApproximateQAgent', second='ApproximateQAgent', num_training=1000):
+                first='OffensiveReflexAgent', second='DefensiveReflexAgent', num_training=1000):
     """
     This function should return a list of two agents that will form the
     team, initialized using firstIndex and secondIndex as their agent
@@ -200,6 +200,62 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
 """
 strategy notes:
 
+different profiles:
+
+    3 options:
+        -0 attackers
+            -distractor spy strategy (both far from border)
+                -> distractor approaches defenders and tries to lure them away from the spy
+
+            - snag and deep search strat (one very near to border)
+                -> one snag agent, one deep attack agent
+
+        -1 attacker
+                 -bait and camp
+                -> one island patroller, one attack
+
+        -2 attacker
+            - guard and chaser
+                -> guard stays around powerup
+                -> chaser hunts down attacker nearest to border
+
+    -defensive:
+        one pellet guard 
+        one chaser
+        island patrol (if there is a large island, stay around here)
+        flanking strategy
+            -> if just one enemy on our side, and both defenders, then flank the opponent
+
+    -offensive:
+        return after certain threshold
+        distractor method
+        snagging strategy (eat quick dots near border when defenders are at their spawn)
+        ignore defenders if powered up
+        
+heuristics
+
+    crosspoint of two circles = position of enemy (wigth noise)
+        -> sample this multiple times and average it
+        
+    defensive:
+        -enemy bounties (how much food dots they have eaten)
+        -enemy distance
+        -enemy distance from powerup
+        -distance from powerup
+        -is enemy powered up?
+        -enemy distance from their home
+        -food islands distance (island = neighboring food dots)
+        -food island size
+
+    offensive:
+        -food islands distance (island = neighboring food dots)
+        -food island size
+        -enemy distance
+        -distance from home
+        -is powered up?
+        -distance from powerup
+        -what is my bounty?
+        -remaining powerup time
 """
 
 class Agent:
