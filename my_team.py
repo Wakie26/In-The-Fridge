@@ -196,7 +196,7 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
     def get_weights(self, game_state, action):
         return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2}
     
-## STUDENT ADDITIONS START HER
+## STUDENT ADDITIONS START HERE
 """
 strategy notes:
 
@@ -237,6 +237,11 @@ heuristics
     crosspoint of two circles = position of enemy (wigth noise)
         -> sample this multiple times and average it
         
+    start analysis:
+        -> get maze layout
+        -> get powerup locations
+        -> get food dots
+
     defensive:
         -enemy bounties (how much food dots they have eaten)
         -enemy distance
@@ -629,7 +634,6 @@ class QLearningAgent(ReinforcementAgent):
     def get_value(self, state):
         return self.compute_value_from_q_values(state)
 
-
 class PacmanQAgent(QLearningAgent):
     "Exactly the same as QLearningAgent, but with different default parameters"
 
@@ -660,7 +664,6 @@ class PacmanQAgent(QLearningAgent):
         action = QLearningAgent.get_action(self, state)
         self.do_action(state, action)
         return action
-
 
 class ApproximateQAgent(PacmanQAgent):
     """
@@ -746,4 +749,17 @@ class ApproximateQAgent(PacmanQAgent):
             "*** YOUR CODE HERE ***"
             pass
 
+class SmartFridgeAgent(CaptureAgent):
+        
+    def get_features(self, game_state, action):
+        features = util.Counter()
 
+        enemiesList = self.get_opponents()
+        oponentConfig = self.get_current_observation()
+        teamCapsules = self.get_capsules_you_are_defending()
+        totalCapsules = len(teamCapsules)*2
+        
+
+        successor = self.get_successor(game_state, action)
+        food_list = self.get_food(successor).as_list()
+        features['successor_score'] = -len(food_list)  # self.get_score(successor)
