@@ -755,10 +755,14 @@ class SmartFridgeAgent(CaptureAgent):
         features = util.Counter()
 
         enemiesList = self.get_opponents()
-        oponentConfig = self.get_current_observation()
-        teamCapsules = self.get_capsules_you_are_defending()
+        current_observ = self.get_current_observation()
+        teamCapsules = self.get_capsules_you_are_defending() ## list[(x,y)] caps on our side
+        enemyCapsules = self.get_capsules() ## list[(x,y)] caps on enemy side
         totalCapsules = len(teamCapsules)*2
-        
+        agentDistances = current_observ.agent_distances
+        agentStates = current_observ.data.agent_states
+        foodEaten = current_observ.data._food_eaten
+        capsulesEaten = current_observ.data._capsules_eaten
 
         successor = self.get_successor(game_state, action)
         food_list = self.get_food(successor).as_list()
