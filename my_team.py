@@ -766,13 +766,21 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         ## general information
         current_observ = self.get_current_observation()
         successor = self.get_successor(game_state, action)
-        agentDistances =  game_state.get_agent_distances()
+        agentDistances =  successor.get_agent_distances()
         foodEaten = current_observ.data._food_eaten
         capsulesEaten = current_observ.data._capsule_eaten
+        my_pos = successor.get_agent_state(self.index).get_position()
+        agent_state = successor.data.agent_states[self.index]
 
         ## info about enemies
-        enemyCapsules = self.get_capsules(game_state) ## list[(x,y)] caps on enemy side
-        enemiesList = self.get_opponents(game_state)
+        enemyCapsules = self.get_capsules(successor) ## list[(x,y)] caps on enemy side
+        enemiesList = self.get_opponents(successor)
+        enemyDistances = []
+        for index in enemiesList:
+            enemyDistances.append(agentDistances[index])
+
+        closestEnemyDist = min(enemyDistances)
+
         enemyStates = []
         for index in enemiesList:
             enemyStates.append(game_state.get_agent_state(index))
@@ -784,23 +792,32 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         lostFoodAmount = self.starting_food_amount - teamFoodAmount
 
         ## computed heuristics
-
         agentBounties = []
         for index in enemiesList:
             agentBounties.append((index,0))
-                
 
         food_list = self.get_food(successor).as_list()
-        my_pos = successor.get_agent_state(self.index).get_position()
         min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
 
-
-        features["teamFoodAmount"] = teamFoodAmount
+        #features["teamFoodAmount"] = teamFoodAmount
         features['distance_to_food'] = min_distance
+        features["closest_enemy_dist"] = closestEnemyDist
+        features["remaining_food"] = len(food_list)
+        features["return_urgency"] = -(agent_state.num_carrying)
 
         return features
         
-
     def get_weights(self, game_state, action):
-        return {"teamFoodAmount": 1, "distance_to_food": -2}
+        return {"distance_to_food": -1, "closest_enemy_dist": 1, "remaining_food": -100, "return_urgency": 100}
+    
+    def choose_action(self, game_state):
+        actions = game_state.get_legal_actions(self.index)
+        values = [self.evaluate(game_state, a) for a in actions]
+
+        max_value = max(values)
+        best_actions = [a for a, v in zip(actions, values) if v == max_value]
+        
+        return random.choice(best_actions)
+
+
 
