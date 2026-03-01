@@ -772,20 +772,43 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         my_pos = successor.get_agent_state(self.index).get_position()
         agent_state = successor.data.agent_states[self.index]
 
+        walls = game_state.get_walls()
+        width = walls.width
+        height = walls.height
+        x_mid = int(width/2)
+
+        midline = []
+        for y in range(0,height):
+            if not game_state.has_wall(x_mid,y):
+                midline.append((x_mid,y))
+
+        def getDistFromMiddle():
+            dist = float("+inf")
+            for pos in midline:
+                dist = min(dist,self.get_maze_distance(pos,my_pos))
+            return dist
+
         ## info about enemies
         enemyCapsules = self.get_capsules(successor) ## list[(x,y)] caps on enemy side
         enemiesList = self.get_opponents(successor)
         enemyDistances = []
-        for index in enemiesList:
-            enemyDistances.append(agentDistances[index])
+        enemyStates = []
+        closestIndex = None
+        closestEnemyDist = float("+inf")
+
+        ## gathering smallest distance from enemies and also the index of the closest enemy
+        for index, x in enumerate(enemiesList):
+            enemyDistances.append(agentDistances[x])
+            enemyStates.append(game_state.get_agent_state(x))
+            if enemyDistances[index] < closestEnemyDist:
+                closestEnemyDist = enemyDistances[index]
+                closestIndex = x
+
 
         closestEnemyDist = min(enemyDistances)
 
-        enemyStates = []
-        for index in enemiesList:
-            enemyStates.append(game_state.get_agent_state(index))
 
-        ## info about our side
+            ## info about our side
         teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
         CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
         teamFoodAmount = len(CurrentTeamFood.as_list())
@@ -799,16 +822,19 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         food_list = self.get_food(successor).as_list()
         min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
 
+        chase_mode = 1 if successor.data.agent_states[closestIndex].is_pacman else -100
+
         #features["teamFoodAmount"] = teamFoodAmount
         features['distance_to_food'] = min_distance
-        features["closest_enemy_dist"] = closestEnemyDist
+        features["closest_enemy_dist"] = closestEnemyDist*chase_mode
         features["remaining_food"] = len(food_list)
-        features["return_urgency"] = -(agent_state.num_carrying)
+        features["return_urgency"] = -(agent_state.num_carrying)*getDistFromMiddle()
+        features['successor_score'] = self.get_score(successor)
 
         return features
         
     def get_weights(self, game_state, action):
-        return {"distance_to_food": -1, "closest_enemy_dist": 1, "remaining_food": -100, "return_urgency": 100}
+        return {"distance_to_food": -1, "closest_enemy_dist": -1, "remaining_food": -100, "return_urgency": 0.5, "successor_score": 10}
     
     def choose_action(self, game_state):
         actions = game_state.get_legal_actions(self.index)
@@ -816,7 +842,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
         max_value = max(values)
         best_actions = [a for a, v in zip(actions, values) if v == max_value]
-        
+
         return random.choice(best_actions)
 
 
