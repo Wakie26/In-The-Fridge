@@ -34,7 +34,7 @@ from util import nearest_point
 #################
 
 def create_team(first_index, second_index, is_red,
-                first='OffensiveReflexAgent', second='DefensiveReflexAgent', num_training=1000):
+                first='SmartFridgeAgent', second='SmartFridgeAgent', num_training=0):
     """
     This function should return a list of two agents that will form the
     team, initialized using firstIndex and secondIndex as their agent
@@ -78,7 +78,7 @@ class ReflexCaptureAgent(CaptureAgent):
         # You can profile your evaluation time by uncommenting these lines
         start = time.time()
         values = [self.evaluate(game_state, a) for a in actions]
-        print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
+        #print('eval time for agent %d: %.4f' % (self.index, time.time() - start))
 
         max_value = max(values)
         best_actions = [a for a, v in zip(actions, values) if v == max_value]
@@ -749,21 +749,58 @@ class ApproximateQAgent(PacmanQAgent):
             "*** YOUR CODE HERE ***"
             pass
 
-class SmartFridgeAgent(CaptureAgent):
+class SmartFridgeAgent(ReflexCaptureAgent):
         
+    def register_initial_state(self, game_state):
+        self.start = game_state.get_agent_position(self.index)
+        CaptureAgent.register_initial_state(self, game_state)
+
+        self.starting_food = self.get_food_you_are_defending(game_state)
+        self.starting_food_amount = len(self.starting_food.as_list())
+        self.starting_capsules = self.get_capsules(game_state)
+
+
     def get_features(self, game_state, action):
         features = util.Counter()
 
-        enemiesList = self.get_opponents()
+        ## general information
         current_observ = self.get_current_observation()
-        teamCapsules = self.get_capsules_you_are_defending() ## list[(x,y)] caps on our side
-        enemyCapsules = self.get_capsules() ## list[(x,y)] caps on enemy side
-        totalCapsules = len(teamCapsules)*2
-        agentDistances = current_observ.agent_distances
-        agentStates = current_observ.data.agent_states
-        foodEaten = current_observ.data._food_eaten
-        capsulesEaten = current_observ.data._capsules_eaten
-
         successor = self.get_successor(game_state, action)
+        agentDistances =  game_state.get_agent_distances()
+        foodEaten = current_observ.data._food_eaten
+        capsulesEaten = current_observ.data._capsule_eaten
+
+        ## info about enemies
+        enemyCapsules = self.get_capsules(game_state) ## list[(x,y)] caps on enemy side
+        enemiesList = self.get_opponents(game_state)
+        enemyStates = []
+        for index in enemiesList:
+            enemyStates.append(game_state.get_agent_state(index))
+
+        ## info about our side
+        teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
+        CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
+        teamFoodAmount = len(CurrentTeamFood.as_list())
+        lostFoodAmount = self.starting_food_amount - teamFoodAmount
+
+        ## computed heuristics
+
+        agentBounties = []
+        for index in enemiesList:
+            agentBounties.append((index,0))
+                
+
         food_list = self.get_food(successor).as_list()
-        features['successor_score'] = -len(food_list)  # self.get_score(successor)
+        my_pos = successor.get_agent_state(self.index).get_position()
+        min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
+
+
+        features["teamFoodAmount"] = teamFoodAmount
+        features['distance_to_food'] = min_distance
+
+        return features
+        
+
+    def get_weights(self, game_state, action):
+        return {"teamFoodAmount": 1, "distance_to_food": -2}
+
