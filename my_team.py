@@ -763,29 +763,34 @@ class SmartFridgeAgent(ReflexCaptureAgent):
     def get_features(self, game_state, action):
         features = util.Counter()
 
+        retreat_threshold = 5
+
         ## general information
         current_observ = self.get_current_observation()
         successor = self.get_successor(game_state, action)
         agentDistances =  successor.get_agent_distances()
         foodEaten = current_observ.data._food_eaten
         capsulesEaten = current_observ.data._capsule_eaten
-        my_pos = successor.get_agent_state(self.index).get_position()
-        agent_state = successor.data.agent_states[self.index]
+        curr_pos = game_state.get_agent_state(self.index).get_position()
+        succ_pos = successor.get_agent_state(self.index).get_position()
+        present_agent_state = game_state.data.agent_states[self.index]
+        succes_agent_state = successor.data.agent_states[self.index]
 
         walls = game_state.get_walls()
         width = walls.width
         height = walls.height
-        x_mid = int(width/2)
+        x_mid = int(width/2) if not self.red else int(width/2) - 1
 
         midline = []
         for y in range(0,height):
             if not game_state.has_wall(x_mid,y):
                 midline.append((x_mid,y))
 
-        def getDistFromMiddle():
+        def getDistFromMiddle(agent_idx):
             dist = float("+inf")
+            agent_pos = successor.get_agent_position(agent_idx)
             for pos in midline:
-                dist = min(dist,self.get_maze_distance(pos,my_pos))
+                dist = min(dist,self.get_maze_distance(pos,agent_pos))
             return dist
 
         ## info about enemies
@@ -796,6 +801,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         closestIndex = None
         closestEnemyDist = float("+inf")
 
+
         ## gathering smallest distance from enemies and also the index of the closest enemy
         for index, x in enumerate(enemiesList):
             enemyDistances.append(agentDistances[x])
@@ -804,15 +810,18 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 closestEnemyDist = enemyDistances[index]
                 closestIndex = x
 
-
         closestEnemyDist = min(enemyDistances)
 
 
-            ## info about our side
+        ## info about our side
         teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
         CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
         teamFoodAmount = len(CurrentTeamFood.as_list())
         lostFoodAmount = self.starting_food_amount - teamFoodAmount
+        teammate_idx = None
+        for index in self.get_team(game_state):
+            if index != self.index:
+                teammate_idx = index
 
         ## computed heuristics
         agentBounties = []
@@ -820,30 +829,75 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             agentBounties.append((index,0))
 
         food_list = self.get_food(successor).as_list()
-        min_distance = min([self.get_maze_distance(my_pos, food) for food in food_list])
+        min_distance = min([self.get_maze_distance(succ_pos, food) for food in food_list])
+
+        def all_pacman_on_team():
+            team_indices = self.get_team(game_state)
+            for index in team_indices:
+                if not game_state.get_agent_state(index).is_pacman:
+                    return False
+            return True
+        
+        def any_pacman_from_enemies():
+            for index in enemiesList:
+                if game_state.get_agent_state(index).is_pacman:
+                    return True
+            return False
+        
+        def closest_to_home():
+            teammate_home_distance = getDistFromMiddle(teammate_idx)
+            my_home_distance = getDistFromMiddle(self.index)
+            return my_home_distance == min(my_home_distance,teammate_home_distance)
+
+            
+        
+        def get_buddy_distance():
+            teammate_pos = successor.get_agent_position(teammate_idx)
+            dist = self.get_maze_distance(succ_pos,teammate_pos)
+            return dist
+                
+        def should_i_defend():
+            if not successor.get_agent_state(self.index).is_pacman and successor.get_agent_state(teammate_idx).is_pacman:
+                ## I am ghost and buddy -> me
+                True
+            elif successor.get_agent_state(self.index).is_pacman and not successor.get_agent_state(teammate_idx).is_pacman:
+                ## I am pac and buddy is ghost
+                False
+            elif successor.get_agent_state(self.index).is_pacman and successor.get_agent_state(teammate_idx).is_pacman:
+                ##both pacman
+                closest_to_home()
+            else:
+                ## both ghost
+                not closest_to_home()
+
+        def get_pellet_middle_point():
+            curr_x = 0
+            curr_y = 0
+            for (x,y) in teamCapsules:
+                curr_x += x
+                curr_y += y
+            avg_x = curr_x / len(teamCapsules)
+            avg_y = curr_y / len(teamCapsules)
+            return (int(avg_x) , int(avg_y))
 
         chase_mode = 1 if successor.data.agent_states[closestIndex].is_pacman else -100
+        retreat_mode = 9999999 if present_agent_state.num_carrying >= retreat_threshold else 1
+        double_attack = 1 if all_pacman_on_team() else 0
 
         #features["teamFoodAmount"] = teamFoodAmount
         features['distance_to_food'] = min_distance
         features["closest_enemy_dist"] = closestEnemyDist*chase_mode
         features["remaining_food"] = len(food_list)
-        features["return_urgency"] = -(agent_state.num_carrying)*getDistFromMiddle()
+        features["return_urgency"] = -getDistFromMiddle(self.index)*retreat_mode
         features['successor_score'] = self.get_score(successor)
+        features["spread_tendency"] = get_buddy_distance()*double_attack
+
+        print(should_i_defend())
 
         return features
         
     def get_weights(self, game_state, action):
-        return {"distance_to_food": -1, "closest_enemy_dist": -1, "remaining_food": -100, "return_urgency": 0.5, "successor_score": 10}
-    
-    def choose_action(self, game_state):
-        actions = game_state.get_legal_actions(self.index)
-        values = [self.evaluate(game_state, a) for a in actions]
-
-        max_value = max(values)
-        best_actions = [a for a, v in zip(actions, values) if v == max_value]
-
-        return random.choice(best_actions)
+        return {"distance_to_food": -5, "closest_enemy_dist": -1, "remaining_food": -100, "return_urgency": 1, "successor_score": 1, "spread_tendency": 2}
 
 
 
