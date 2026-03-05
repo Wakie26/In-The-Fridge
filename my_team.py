@@ -935,7 +935,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 curr_y += y
             avg_x = curr_x / len(teamCapsules)
             avg_y = curr_y / len(teamCapsules)
-            self.debug_draw((avg_x,avg_y),color=(0.8,0.2,0.8))
+            #self.debug_draw((avg_x,avg_y),color=(0.8,0.2,0.8))
             if game_state.has_wall(int(avg_x) , int(avg_y)):
                 if not game_state.has_wall(int(avg_x) + 1 , int(avg_y)):
                     return (int(avg_x) + 1 , int(avg_y))
@@ -965,7 +965,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 curr_y += pos[1]
             avg_x = curr_x/len(CurrentTeamFood.as_list())
             avg_y = curr_y/len(CurrentTeamFood.as_list())
-            self.debug_draw((avg_x,avg_y),color=(0.2,0.1,0.8))
+            #self.debug_draw((avg_x,avg_y),color=(0.2,0.1,0.8))
             if game_state.has_wall(int(avg_x) , int(avg_y)):
                 if not game_state.has_wall(int(avg_x) + 1 , int(avg_y)):
                     return (int(avg_x) + 1 , int(avg_y))
@@ -1026,9 +1026,9 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             self.active_profile = "attack"
 
         if self.active_profile == "defend":
-            self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
+            #self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
         elif self.active_profile == "attack":
-            self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
+            #self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
         else:
             print("no profile")
 
