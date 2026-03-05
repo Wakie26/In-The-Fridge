@@ -957,6 +957,39 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             
             return (int(avg_x) , int(avg_y))
 
+        def get_your_half_center():
+            curr_x = 0
+            curr_y = 0
+            for pos in CurrentTeamFood.as_list():
+                curr_x += pos[0]
+                curr_y += pos[1]
+            avg_x = curr_x/len(CurrentTeamFood.as_list())
+            avg_y = curr_y/len(CurrentTeamFood.as_list())
+            self.debug_draw((avg_x,avg_y),color=(0.2,0.1,0.8))
+            if game_state.has_wall(int(avg_x) , int(avg_y)):
+                if not game_state.has_wall(int(avg_x) + 1 , int(avg_y)):
+                    return (int(avg_x) + 1 , int(avg_y))
+                elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) + 1):
+                    return (int(avg_x) + 1 , int(avg_y) + 1)
+                elif not game_state.has_wall(int(avg_x) , int(avg_y) +1 ):
+                    return (int(avg_x) , int(avg_y) +1 )
+                elif not game_state.has_wall(int(avg_x) -1 , int(avg_y) + 1):
+                    return (int(avg_x) - 1 , int(avg_y + 1))
+                elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y)):
+                    return (int(avg_x) - 1 , int(avg_y))
+                elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y) - 1):
+                    return (int(avg_x) - 1 , int(avg_y) - 1)
+                elif not game_state.has_wall(int(avg_x) , int(avg_y) - 1):
+                    return (int(avg_x) , int(avg_y) - 1)
+                elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) - 1):
+                    return (int(avg_x) + 1 , int(avg_y) - 1)
+            return (int(avg_x) , int(avg_y))
+            
+        def avg_of_two_pos(pos1, pos2):
+            total_x = pos1[0] + pos2[0]
+            total_y = pos1[1] + pos2[1]
+            return (total_x*0.5, total_y*0.5)
+
         retreat_mode = 9999999 if present_agent_state.num_carrying >= retreat_threshold else 1
         double_attack = 1 if all_pacman_on_team() else 0
 
@@ -971,6 +1004,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         features["spread_tendency"] = get_buddy_distance()*double_attack
         features['num_invaders'] = len(invaders)
         features["capsule_middle_distance"] = self.get_maze_distance(get_capsule_middle_point(),succ_pos) if any_pacman_from_enemies() and len(teamCapsules) > 0 else 0
+        features["center_ownside_distance"] = self.get_maze_distance(get_your_half_center(),succ_pos)
 
         if any_pacman_from_enemies():
             dists = None
@@ -979,6 +1013,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             else:
                 dists = enemyDistances
             features['invader_distance'] = min(dists)
+            print(features['invader_distance'])
 
         if action == Directions.STOP: features['stop'] = 1
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
@@ -997,7 +1032,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         else:
             print("no profile")
 
-
         return features
         
     def get_weights(self, game_state, action):
@@ -1007,7 +1041,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                               "stop": -100, "reverse": -1, "capsule_middle_distance": 0}
         
         defend_profile = {"num_invaders": -1000, "invader_distance": -10, "stop": -100, "reverse": -2,
-                            "capsule_middle_distance": -1, "closest_enemy_dist": -2}
+                            "capsule_middle_distance": 0, "closest_enemy_dist": -2, "center_ownside_distance": -1}
         
         chosen_profile = defend_profile if self.active_profile == "defend" else attack_profile
         return chosen_profile
