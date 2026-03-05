@@ -772,7 +772,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         agentDistances =  successor.get_agent_distances()
         foodEaten = current_observ.data._food_eaten
         capsulesEaten = current_observ.data._capsule_eaten
-        curr_pos = my_state.get_position()
+        curr_pos = game_state.get_agent_state(self.index).get_position()
         succ_pos = successor.get_agent_state(self.index).get_position()
         present_agent_state = game_state.data.agent_states[self.index]
         succes_agent_state = successor.data.agent_states[self.index]
