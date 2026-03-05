@@ -772,7 +772,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         agentDistances =  successor.get_agent_distances()
         foodEaten = current_observ.data._food_eaten
         capsulesEaten = current_observ.data._capsule_eaten
-        curr_pos = game_state.get_agent_state(self.index).get_position()
+        curr_pos = my_state.get_position()
         succ_pos = successor.get_agent_state(self.index).get_position()
         present_agent_state = game_state.data.agent_states[self.index]
         succes_agent_state = successor.data.agent_states[self.index]
@@ -818,6 +818,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
 
         ## info about our side
+        my_state = game_state.get_agent_state(self.index)
         teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
         CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
         teamFoodAmount = len(CurrentTeamFood.as_list())
@@ -1025,12 +1026,12 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         else:
             self.active_profile = "attack"
 
-        if self.active_profile == "defend":
+        #if self.active_profile == "defend":
             #self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
-        elif self.active_profile == "attack":
+        #elif self.active_profile == "attack":
             #self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
-        else:
-            print("no profile")
+        #else:
+            #print("no profile")
 
         return features
         
