@@ -27,6 +27,7 @@ import time
 from capture_agents import CaptureAgent
 from game import Directions
 from util import nearest_point
+from collections import Counter as CountList
 
 
 #################
@@ -263,492 +264,6 @@ heuristics
         -remaining powerup time
 """
 
-class Agent:
-    """
-    An agent must define a get_action method, but may also define the
-    following methods which will be called if they exist:
-
-    def register_initial_state(self, state): # inspects the starting state
-    """
-
-    def __init__(self, index=0):
-        self.index = index
-
-    def get_action(self, state):
-        """
-        The Agent will receive a GameState (from either {pacman, capture, sonar}.py) and
-        must return an action from Directions.{North, South, East, West, Stop}
-        """
-        util.raise_not_defined()
-
-class ValueEstimationAgent(Agent):
-    """
-      Abstract agent which assigns values to (state, action)
-      Q-Values for an environment. As well as a value to a
-      state and a policy given respectively by,
-
-      V(s) = max_{a in actions} Q(s, a)
-      policy(s) = arg_max_{a in actions} Q(s, a)
-
-      Both ValueIterationAgent and QLearningAgent inherit
-      from this agent. While a ValueIterationAgent has
-      a model of the environment via a MarkovDecisionProcess
-      (see mdp.py) that is used to estimate Q-Values before
-      ever actually acting, the QLearningAgent estimates
-      Q-Values while acting in the environment.
-    """
-
-    def __init__(self, alpha=1.0, epsilon=0.05, gamma=0.8, num_training = 10):
-        """
-        Sets options, which can be passed in via the Pacman command line using -a alpha=0.5,...
-        alpha    - learning rate
-        epsilon  - exploration rate
-        gamma    - discount factor
-        num_training - number of training episodes, i.e. no learning after these many episodes
-        """
-        self.alpha = float(alpha)
-        self.epsilon = float(epsilon)
-        self.discount = float(gamma)
-        self.num_training = int(num_training)
-
-    ####################################
-    #    Override These Functions      #
-    ####################################
-    def get_q_value(self, state, action):
-        """
-        Should return Q(state, action)
-        """
-        util.raise_not_defined()
-
-    def get_value(self, state):
-        """
-        What is the value of this state under the best action?
-        Concretely, this is given by
-
-        V(s) = max_{a in actions} Q(s, a)
-        """
-        util.raise_not_defined()
-
-    def get_policy(self, state):
-        """
-        What is the best action to take in the state. Note that because
-        we might want to explore, this might not coincide with get_action
-        Concretely, this is given by
-
-        policy(s) = arg_max_{a in actions} Q(s, a)
-
-        If many actions achieve the maximal Q-value,
-        it doesn't matter which is selected.
-        """
-        util.raise_not_defined()
-
-    def get_action(self, state):
-        """
-        state: can call state.get_legal_actions()
-        Choose an action and return it.
-        """
-        util.raise_not_defined()
-
-class ReinforcementAgent(ValueEstimationAgent):
-    """
-      Abstract Reinforcemnt Agent: A ValueEstimationAgent
-            which estimates Q-Values (as well as policies) from experience
-            rather than a model
-
-        What you need to know:
-                    - The environment will call
-                      observe_transition(state, action, next_state, delta_reward),
-                      which will call update(state, action, next_state, delta_reward)
-                      which you should override.
-        - Use self.get_legal_actions(state) to know which actions
-                      are available in a state
-    """
-    ####################################
-    #    Override These Functions      #
-    ####################################
-
-    def update(self, state, action, next_state, reward):
-        """
-                This class will call this function, which you write, after
-                observing a transition and reward
-        """
-        util.raise_not_defined()
-
-    ####################################
-    #    Read These Functions          #
-    ####################################
-
-    def get_legal_actions(self, state):
-        """
-          Get the actions available for a given
-          state. This is what you should use to
-          obtain legal actions for a state
-        """
-        return self.action_fn(state)
-
-    def observe_transition(self, state, action, next_state, delta_reward):
-        """
-            Called by environment to inform agent that a transition has
-            been observed. This will result in a call to self.update
-            on the same arguments
-
-            NOTE: Do *not* override or call this function
-        """
-        self.episode_rewards += delta_reward
-        self.update(state, action, next_state, delta_reward)
-
-    def start_episode(self):
-        """
-          Called by environment when new episode is starting
-        """
-        self.last_state = None
-        self.last_action = None
-        self.episode_rewards = 0.0
-
-    def stop_episode(self):
-        """
-          Called by environment when episode is done
-        """
-        if self.episodes_so_far < self.num_training:
-            self.accum_train_rewards += self.episode_rewards
-        else:
-            self.accum_test_rewards += self.episode_rewards
-        self.episodes_so_far += 1
-        if self.episodes_so_far >= self.num_training:
-            # Take off the training wheels
-            self.epsilon = 0.0    # no exploration
-            self.alpha = 0.0      # no learning
-
-    def is_in_training(self):
-        return self.episodes_so_far < self.num_training
-
-    def is_in_testing(self):
-        return not self.is_in_training()
-
-    def __init__(self, action_fn = None, num_training=100, epsilon=0.5, alpha=0.5, gamma=1):
-        """
-        action_fn: Function which takes a state and returns the list of legal actions
-
-        alpha    - learning rate
-        epsilon  - exploration rate
-        gamma    - discount factor
-        num_training - number of training episodes, i.e. no learning after these many episodes
-        """
-        if action_fn == None:
-            action_fn = lambda state: state.get_legal_actions()
-        self.action_fn = action_fn
-        self.episodes_so_far = 0
-        self.accum_train_rewards = 0.0
-        self.accum_test_rewards = 0.0
-        self.num_training = int(num_training)
-        self.epsilon = float(epsilon)
-        self.alpha = float(alpha)
-        self.discount = float(gamma)
-
-    ################################
-    # Controls needed for Crawler  #
-    ################################
-    def set_epsilon(self, epsilon):
-        self.epsilon = epsilon
-
-    def set_learning_rate(self, alpha):
-        self.alpha = alpha
-
-    def set_discount(self, discount):
-        self.discount = discount
-
-    def do_action(self, state, action):
-        """
-            Called by inherited class when
-            an action is taken in a state
-        """
-        self.last_state = state
-        self.last_action = action
-
-    ###################
-    # Pacman Specific #
-    ###################
-    def observation_function(self, state):
-        """
-            This is where we ended up after our last action.
-            The simulation should somehow ensure this is called
-        """
-        if not self.last_state is None:
-            reward = state.get_score() - self.last_state.get_score()
-            self.observe_transition(self.last_state, self.last_action, state, reward)
-        return state
-
-    def register_initial_state(self, state):
-        self.start_episode()
-        if self.episodes_so_far == 0:
-            print('Beginning %d episodes of Training' % (self.num_training))
-
-    def final(self, state):
-        """
-          Called by Pacman game at the terminal state
-        """
-        delta_reward = state.get_score() - self.last_state.get_score()
-        self.observe_transition(self.last_state, self.last_action, state, delta_reward)
-        self.stop_episode()
-
-        # Make sure we have this var
-        if not 'episode_start_time' in self.__dict__:
-            self.episode_start_time = time.time()
-        if not 'last_window_accum_rewards' in self.__dict__:
-            self.last_window_accum_rewards = 0.0
-        self.last_window_accum_rewards += state.get_score()
-
-        NUM_EPS_UPDATE = 100
-        if self.episodes_so_far % NUM_EPS_UPDATE == 0:
-            print('Reinforcement Learning Status:')
-            window_avg = self.last_window_accum_rewards / float(NUM_EPS_UPDATE)
-            if self.episodes_so_far <= self.num_training:
-                train_avg = self.accum_train_rewards / float(self.episodes_so_far)
-                print('\tCompleted %d out of %d training episodes' % (
-                       self.episodes_so_far, self.num_training))
-                print('\tAverage Rewards over all training: %.2f' % (
-                        train_avg))
-            else:
-                test_avg = float(self.accum_test_rewards) / (self.episodes_so_far - self.num_training)
-                print('\tCompleted %d test episodes' % (self.episodes_so_far - self.num_training))
-                print('\tAverage Rewards over testing: %.2f' % test_avg)
-            print('\tAverage Rewards for last %d episodes: %.2f'  % (
-                    NUM_EPS_UPDATE, window_avg))
-            print('\tEpisode took %.2f seconds' % (time.time() - self.episode_start_time))
-            self.last_window_accum_rewards = 0.0
-            self.episode_start_time = time.time()
-
-        if self.episodes_so_far == self.num_training:
-            msg = 'Training Done (turning off epsilon and alpha)'
-            print('%s\n%s' % (msg,'-' * len(msg)))
-
-class QLearningAgent(ReinforcementAgent):
-    def __init__(self, **args):
-        "You can initialize Q-values here..."
-        ReinforcementAgent.__init__(self, **args)
-
-
-        "*** YOUR CODE HERE ***"
-        self.q_values = util.Counter() # dictionary which returns 0 if you look up a key that hasn't been assigned yet
-
-
-    def get_q_value(self, state, action):
-        "*** YOUR CODE HERE ***"
-        return self.q_values[(state, action)]
-
-
-
-
-    def compute_value_from_q_values(self, state):
-        """
-          Returns max_action Q(state, action)
-          where the max is over legal actions.  Note that if
-          there are no legal actions, which is the case at the
-          terminal state, you should return a value of 0.0.
-        """
-        "*** YOUR CODE HERE ***"
-        value = float ("-inf") # values can be negative, so initialize at -inf
-        actions = self.get_legal_actions(state)
-        if not actions:
-            return 0.0 # default value
-       
-        for action in actions:
-            value = max(value, (self.get_q_value(state, action)))
-        return value
-
-
-    def compute_action_from_q_values(self, state):
-        """
-          Compute the best action to take in a state.  Note that if there
-          are no legal actions, which is the case at the terminal state,
-          you should return None.
-        """
-        "*** YOUR CODE HERE ***"
-        actions = self.get_legal_actions(state)
-
-
-        max_q = self.compute_value_from_q_values(state)
-        best_actions = []
-
-
-        # make a list of all of the actions that, combined with the state, have the maximum q-value
-        # then choose randomly from that list
-        for action in actions:
-            if self.get_q_value(state, action) == max_q:
-                best_actions.append(action)
-       
-        if not best_actions:
-            return None
-
-
-        return random.choice(best_actions)
-
-
-
-
-    def get_action(self, state):
-        """
-          Compute the action to take in the current state.  With
-          probability self.epsilon, we should take a random action and
-          take the best policy action otherwise.  Note that if there are
-          no legal actions, which is the case at the terminal state, you
-          should choose None as the action.
-
-
-          HINT: You might want to use util.flip_coin(prob)
-          HINT: To pick randomly from a list, use random.choice(list)
-        """
-        # Pick Action
-        legal_actions = self.get_legal_actions(state)
-        action = None
-        "*** YOUR CODE HERE ***"
-
-
-        # with a chance of 1 - epsilon, the computed best action will be selected
-        # otherwise, choose random from all the legal actions
-        if util.flip_coin(1 - self.epsilon):
-            action = self.compute_action_from_q_values(state)
-        else:
-            action = random.choice(legal_actions)
-       
-        return action
-       
-
-
-    def update(self, state, action, next_state, reward):
-        "*** YOUR CODE HERE ***"
-        old_q_value = self.get_q_value(state, action)
-        next_max_q = self.compute_value_from_q_values(next_state)
-        new_q_value = (1 - self.alpha) * old_q_value + self.alpha * (reward + self.discount * next_max_q)
-
-
-        # update the q_values dictionary
-        self.q_values[(state, action)] = new_q_value
-       
-
-
-    def get_policy(self, state):
-        return self.compute_action_from_q_values(state)
-
-
-    def get_value(self, state):
-        return self.compute_value_from_q_values(state)
-
-class PacmanQAgent(QLearningAgent):
-    "Exactly the same as QLearningAgent, but with different default parameters"
-
-    def __init__(self, epsilon=0.05, gamma=0.8, alpha=0.2, num_training=0, **args):
-        """
-        These default parameters can be changed from the pacman.py command line.
-        For example, to change the exploration rate, try:
-            python pacman.py -p PacmanQLearningAgent -a epsilon=0.1
-
-        alpha    - learning rate
-        epsilon  - exploration rate
-        gamma    - discount factor
-        num_training - number of training episodes, i.e. no learning after these many episodes
-        """
-        args['epsilon'] = epsilon
-        args['gamma'] = gamma
-        args['alpha'] = alpha
-        args['num_training'] = num_training
-        self.index = 0  # This is always Pacman
-        QLearningAgent.__init__(self, **args)
-
-    def get_action(self, state):
-        """
-        Simply calls the get_action method of QLearningAgent and then
-        informs parent of action for Pacman.  Do not change or remove this
-        method.
-        """
-        action = QLearningAgent.get_action(self, state)
-        self.do_action(state, action)
-        return action
-
-class ApproximateQAgent(PacmanQAgent):
-    """
-       ApproximateQLearningAgent
-
-       You should only have to overwrite get_q_value
-       and update.  All other QLearningAgent functions
-       should work as is.
-    """
-    def __init__(self, extractor='IdentityExtractor', **args):
-        self.feat_extractor = util.lookup(extractor, globals())()
-        PacmanQAgent.__init__(self, **args)
-        self.weights = util.Counter()
-
-
-    def get_weights(self):
-        return self.weights
-
-
-    def get_q_value(self, state, action):
-        """
-          Should return Q(state, action) = w * feature_vector
-          where * is the dot_product operator
-        """
-        "*** YOUR CODE HERE ***"
-        # Christmas present from Arno
-        weights = self.get_weights()
-        features = self.feat_extractor.get_features(state, action)
-
-
-        # Q(s, a) = w_1 f_1(s, a) + w_2 f_2(s, a) + ... + w_n f_n(s, a)
-        dot_product = 0
-        for feature_name, feature_value in features.items():
-            dot_product += weights[feature_name] * feature_value
-        return dot_product
-
-
-    def update(self, state, action, next_state, reward):
-        """
-           Should update your weights based on transition
-        """
-        "*** YOUR CODE HERE ***"
-        weights = self.get_weights()
-        features = self.feat_extractor.get_features(state, action)
-
-
-        # compute max q-value of all state-acion pairs of a state
-        def max_q_value(state):
-            actions = self.get_legal_actions(state)
-            current_q_value = float("-inf") # initialize at -inf, because values can be negative
-
-
-            for action in actions:
-                q_value = self.get_q_value(state, action)
-                if q_value > current_q_value:
-                    current_q_value = q_value
-
-            if current_q_value == float("-inf"):
-                current_q_value = 0 # default value
-            return current_q_value
-       
-        difference = (reward + self.discount * max_q_value(next_state)) - self.get_q_value(state, action)
-
-
-        # update weight for each feature of the state-action pair
-        for feature_name, feature_value in features.items():
-            old_weight = weights[feature_name]
-            new_weight = old_weight + self.alpha * difference * feature_value
-
-
-            self.weights[feature_name] = new_weight
-
-
-    def final(self, state):
-        "Called at the end of each game."
-        # call the super-class final method
-        PacmanQAgent.final(self, state)
-
-
-        # did we finish training?
-        if self.episodes_so_far == self.num_training:
-            # you might want to print your weights here for debugging
-            "*** YOUR CODE HERE ***"
-            pass
-
 class SmartFridgeAgent(ReflexCaptureAgent):
         
     def register_initial_state(self, game_state):
@@ -760,26 +275,112 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         self.starting_food_amount = len(self.starting_food.as_list())
         self.starting_capsules = self.get_capsules(game_state)
 
+        def get_neighbor_walls(x,y):
+            neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+            walls = []
+            non_walls = []
+            for dx, dy in neighbors:
+                neighbor = game_state.data.layout.walls[x+dx][y+dy]
+                if neighbor:
+                    walls.append((x+dx, y+dy))
+                else:
+                    non_walls.append((x+dx, y+dy))
+            return walls, non_walls
+            
+        def get_dead_ends():
+                """
+                    returns a list of ((x,y), empty_neighbor) of all dead end cells
+                """
+                walls = game_state.get_walls()
+                wall_list = walls.as_list()
+                neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+                dead_ends = []
+                for x in range(walls.width):
+                    for y in range(walls.height):
+                        if not game_state.data.layout.walls[x][y]:
+                            wall_neighbors, empty_neighbors = get_neighbor_walls(x,y)
+                            if len(wall_neighbors) == 3:
+                                ## this is a dead end cell
+                                dead_ends.append(((x,y), empty_neighbors[0]))
+                                self.debug_draw((x,y),color=(.4,.6,.2))
+                return dead_ends
+
+        def breadth_first_search(start):
+            agenda = util.Queue()
+            init_cell = start
+            ## de agenda is een stack van nodes: eerste element is de state, tweede element is het pad tot nu toe
+            agenda.push([init_cell,[]])
+            Visited = set([init_cell])
+
+            while True:
+                if agenda.is_empty():
+                    return []
+
+                current_state = agenda.pop()
+                current_path = current_state[1]
+                current_cell = current_state[0]
+
+                walls, non_walls = get_neighbor_walls(current_cell[0],current_cell[1])
+                
+                if len(walls) < 2:
+                    #self.debug_draw(prev_cell,color=(0.9,0.2,0.2))
+                    return current_path
+
+                for next_cell in non_walls:
+                    if next_cell not in Visited:
+                        Visited.add(next_cell)
+                        self.debug_draw(current_cell,color=(0.5,0.8,0.3))
+                        agenda.push([next_cell, current_path + [current_cell]])
+
+        def get_all_dead_paths():
+            dead_paths = []
+            for dead_end, start in get_dead_ends():
+                dead_list = breadth_first_search(start)
+                dead_paths.append(dead_list)
+            return dead_paths
+
+        print(get_all_dead_paths())
+            
+
     def get_features(self, game_state, action):
         features = util.Counter()
         self.debug_clear()
 
-        retreat_threshold = 5
-
         ## general information
-        current_observ = self.get_current_observation()
+        previous_positions = []
+        for observ in self.observation_history[-12: ]:
+            position = observ.get_agent_position(self.index)
+            previous_positions.append(position)
+
+        uniquePositions = CountList(previous_positions).keys()
+        uniqueCount = CountList(previous_positions).values()
+        bad_positions = []
+        #print(uniquePositions.mapping.get())
+
+        for pos in uniquePositions.mapping:
+            count = uniquePositions.mapping.get(pos)
+            if count >= 6:
+                bad_positions.append(pos)
+            
+
+        #print(uniquePositions,"\n", uniqueCount,"\n", previous_positions,"\n")
+            
+
         successor = self.get_successor(game_state, action)
-        agentDistances =  successor.get_agent_distances()
-        foodEaten = current_observ.data._food_eaten
-        capsulesEaten = current_observ.data._capsule_eaten
-        curr_pos = game_state.get_agent_state(self.index).get_position()
-        succ_pos = successor.get_agent_state(self.index).get_position()
         present_agent_state = game_state.data.agent_states[self.index]
         succes_agent_state = successor.data.agent_states[self.index]
+
+        scared_timer = succes_agent_state.scared_timer
+        is_scared = scared_timer > 0
+
+        agentDistances =  successor.get_agent_distances()
+        curr_pos = present_agent_state.get_position()
+        succ_pos = succes_agent_state.get_position()
 
         walls = game_state.get_walls()
         width = walls.width
         height = walls.height
+
         x_mid = int(width/2) if not self.red else int(width/2) - 1
 
         midline = []
@@ -795,14 +396,17 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             return dist
 
         ## info about enemies
-        enemyCapsules = self.get_capsules(successor) ## list[(x,y)] caps on enemy side
         enemiesList = self.get_opponents(successor)
         enemyDistances = []
         enemyStates = []
-        closestIndex = None
         closestEnemyDist = float("+inf")
 
         enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+
+        enemy_scared_timers = [enemy.scared_timer for enemy in enemies]
+
+        enemy_scared_factor = sum(enemy_scared_timers)/len(enemy_scared_timers)
+
         invaders = [a for a in enemies if a.is_pacman and a.get_position() is not None]
 
 
@@ -810,29 +414,22 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         for index, x in enumerate(enemiesList):
             enemyDistances.append(agentDistances[x])
             enemyStates.append(game_state.get_agent_state(x))
+
             if enemyDistances[index] < closestEnemyDist:
                 closestEnemyDist = enemyDistances[index]
-                closestIndex = x
 
         closestEnemyDist = min(enemyDistances)
 
 
         ## info about our side
-        my_state = game_state.get_agent_state(self.index)
         teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
         CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
-        teamFoodAmount = len(CurrentTeamFood.as_list())
-        lostFoodAmount = self.starting_food_amount - teamFoodAmount
         teammate_idx = None
         for index in self.get_team(game_state):
             if index != self.index:
                 teammate_idx = index
 
         ## computed heuristics
-        agentBounties = []
-        for index in enemiesList:
-            agentBounties.append((index,0))
-
         food_list = self.get_food(successor).as_list()
         min_distance_food = min([self.get_maze_distance(succ_pos, food) for food in food_list])
 
@@ -991,10 +588,12 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             total_y = pos1[1] + pos2[1]
             return (total_x*0.5, total_y*0.5)
 
-        retreat_mode = 9999999 if present_agent_state.num_carrying >= retreat_threshold else 1
+        retreat_threshold = 5 + enemy_scared_factor*0.2
+
+        retreat_mode = 9999999 if succes_agent_state.num_carrying >= retreat_threshold else 1
+
         double_attack = 1 if all_pacman_on_team() else 0
 
-        #features["teamFoodAmount"] = teamFoodAmount
         features['distance_to_food'] = min_distance_food
         features['distance_to_capsule'] = min_distance_cap
         features["remaining_capsules"] = len(capsules_list)
@@ -1006,19 +605,26 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         features['num_invaders'] = len(invaders)
         features["capsule_middle_distance"] = self.get_maze_distance(get_capsule_middle_point(),succ_pos) if any_pacman_from_enemies() and len(teamCapsules) > 0 else 0
         features["center_ownside_distance"] = self.get_maze_distance(get_your_half_center(),succ_pos)
+        max_tweak_dist = 0
+
+        for pos in bad_positions:
+            max_tweak_dist = max(self.get_maze_distance(succ_pos,pos),max_tweak_dist)
+
+        features["anti-tweak"] = max_tweak_dist
 
         if any_pacman_from_enemies():
             dists = None
             if len(invaders) > 0:
-                dists = [self.get_maze_distance(curr_pos, a.get_position()) for a in invaders]
+                dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in invaders]
             else:
                 dists = enemyDistances
             features['invader_distance'] = min(dists)
-            print(features['invader_distance'])
+
+        features["barely_evade"] = 1 if features['invader_distance'] == 1 and is_scared else 0
 
         if action == Directions.STOP: features['stop'] = 1
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
-        if action == rev: features['reverse'] = 1    
+        if action == rev: features['reverse'] = 1 if not bad_positions else 1000    
 
         ## determine what profile will be used
         if should_i_defend() and any_pacman_from_enemies():
@@ -1026,23 +632,29 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         else:
             self.active_profile = "attack"
 
-        #if self.active_profile == "defend":
-            #self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
-        #elif self.active_profile == "attack":
-            #self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
-        #else:
-            #print("no profile")
+        if self.active_profile == "defend":
+            self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
+        elif self.active_profile == "attack":
+            self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
+        else:
+            print("no profile")
+            
+        if len(teamCapsules) > 0:
+            self.debug_draw(avg_of_two_pos(get_capsule_middle_point(),get_your_half_center()),color=(1,1,1))
 
         return features
         
     def get_weights(self, game_state, action):
-        attack_profile = {"distance_to_food": -5, "distance_to_capsule": -10, "remaining_capsules": -1000 , "closest_enemy_dist": 1,
-                           "remaining_food": -100, "return_urgency": .5, "successor_score": 1,
-                             "spread_tendency": 2, "num_invaders": 0, "invader_distance": 0,
-                              "stop": -100, "reverse": -1, "capsule_middle_distance": 0}
+        attack_profile = {"distance_to_food": -5, "distance_to_capsule": -10, "remaining_capsules": -1000 , "closest_enemy_dist": 10,
+                           "remaining_food": -1000, "return_urgency": 2, "successor_score": 1,
+                             "spread_tendency": 4, "num_invaders": -1000, "invader_distance": -11,
+                              "stop": -100, "reverse": -1, "capsule_middle_distance": 0,
+                              "barely_evade": -99999, "anti-tweak": -50}
         
         defend_profile = {"num_invaders": -1000, "invader_distance": -10, "stop": -100, "reverse": -2,
-                            "capsule_middle_distance": 0, "closest_enemy_dist": -2, "center_ownside_distance": -1}
+                            "capsule_middle_distance": 0, "closest_enemy_dist": -2, "center_ownside_distance": -5,
+                            "barely_evade": -99999, "spread_tendency": 5, "anti-tweak": -50}
+        
         
         chosen_profile = defend_profile if self.active_profile == "defend" else attack_profile
         return chosen_profile
