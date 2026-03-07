@@ -305,7 +305,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                                 self.debug_draw((x,y),color=(.4,.6,.2))
                 return dead_ends
 
-        def breadth_first_search(start):
+        def breadth_first_search(start, stopcondition):
             agenda = util.Queue()
             init_cell = start
             ## de agenda is een stack van nodes: eerste element is de state, tweede element is het pad tot nu toe
@@ -322,7 +322,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
                 walls, non_walls = get_neighbor_walls(current_cell[0],current_cell[1])
                 
-                if len(walls) < 2:
+                if stopcondition(walls):
                     #self.debug_draw(prev_cell,color=(0.9,0.2,0.2))
                     return current_path
 
@@ -334,17 +334,19 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
         def get_all_dead_paths():
             dead_paths = []
+
+            def stopcondition(walls):
+                return len(walls) < 2
+            
             for dead_end, start in get_dead_ends():
-                dead_list = breadth_first_search(start)
+                dead_list = breadth_first_search(start,stopcondition)
                 dead_paths.append(dead_list)
             return dead_paths
-
-        print(get_all_dead_paths())
             
 
     def get_features(self, game_state, action):
         features = util.Counter()
-        self.debug_clear()
+        #self.debug_clear()
 
         ## general information
         previous_positions = []
@@ -443,27 +445,10 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0),
                          (1, 1), (-1, 1), (1, -1), (-1, -1)]
             
-            def get_neighbors(pos):
-                res = []
-                for dx, dy in neighbors:
-                    new_pos = (pos[0]+dx, pos[1]+dy)
-                    res.append(new_pos)
-                return res
-            
-            for pos in food_positions:
-                if not pos in visited:
-                    curr_island = set(pos)
-                    queue = []
+            for food in food_positions:
+                if not food in visited:
+                    island = 
 
-                    while queue:
-                        curr = queue.pop()
-                        if curr in visited:
-                            continue
-                        visited.add(curr)
-                        curr_island.add(curr)
-                        queue.append(get_neighbors(curr))
-
-                    islands.append(curr_island)
             return islands
 
 
@@ -622,7 +607,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
         features["barely_evade"] = 1 if features['invader_distance'] == 1 and is_scared else 0
 
-        if action == Directions.STOP: features['stop'] = 1
+        if action == Directions.STOP: features['stop'] = 1 if not bad_positions else 2000
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
         if action == rev: features['reverse'] = 1 if not bad_positions else 1000    
 
@@ -632,15 +617,15 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         else:
             self.active_profile = "attack"
 
-        if self.active_profile == "defend":
-            self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
-        elif self.active_profile == "attack":
-            self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
-        else:
-            print("no profile")
+        #if self.active_profile == "defend":
+        #    self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
+        #elif self.active_profile == "attack":
+        #    self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
+        #else:
+        #    print("no profile")
             
-        if len(teamCapsules) > 0:
-            self.debug_draw(avg_of_two_pos(get_capsule_middle_point(),get_your_half_center()),color=(1,1,1))
+        #if len(teamCapsules) > 0:
+        #    self.debug_draw(avg_of_two_pos(get_capsule_middle_point(),get_your_half_center()),color=(1,1,1))
 
         return features
         
