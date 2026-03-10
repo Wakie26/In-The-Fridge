@@ -98,6 +98,9 @@ class ReflexCaptureAgent(CaptureAgent):
                     best_dist = dist
             return best_action
 
+        if Directions.STOP in best_actions:
+            print("Stopping")
+
         return random.choice(best_actions)
 
     def get_successor(self, game_state, action):
@@ -136,6 +139,8 @@ class ReflexCaptureAgent(CaptureAgent):
         """
         return {'successor_score': 1.0}
 
+class MiniMaxReflexAgent():
+    pass
 
 class OffensiveReflexAgent(ReflexCaptureAgent):
     """
@@ -265,7 +270,8 @@ heuristics
 """
 
 class SmartFridgeAgent(ReflexCaptureAgent):
-        
+    # idee: eet ghosts die scared zijn pas wnr hun timer bijna op is
+
     def register_initial_state(self, game_state):
         self.start = game_state.get_agent_position(self.index)
         CaptureAgent.register_initial_state(self, game_state)
@@ -274,6 +280,8 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         self.starting_food = self.get_food_you_are_defending(game_state)
         self.starting_food_amount = len(self.starting_food.as_list())
         self.starting_capsules = self.get_capsules(game_state)
+
+        self.active_profile = "attack" ## both agents start as attackers
 
         def get_neighbor_walls(x,y):
             neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
@@ -332,7 +340,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                         self.debug_draw(current_cell,color=(0.5,0.8,0.3))
                         agenda.push([next_cell, current_path + [current_cell]])
 
-        def get_all_dead_paths():
+        def get_all_dead_paths():    
             dead_paths = []
 
             def stopcondition(walls):
@@ -342,11 +350,21 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 dead_list = breadth_first_search(start,stopcondition)
                 dead_paths.append(dead_list)
             return dead_paths
-            
+    
+        walls = game_state.get_walls()
+        self.width = walls.width
+        self.height = walls.height
+        self.x_mid = int(self.width/2) if not self.red else int(self.width/2) - 1
+
+        self.midline = []
+        for y in range(0,self.height):
+            if not game_state.has_wall(self.x_mid,y):
+                self.midline.append((self.x_mid,y))
+        self.dead_paths = get_all_dead_paths()
 
     def get_features(self, game_state, action):
         features = util.Counter()
-        #self.debug_clear()
+        self.debug_clear()
 
         ## general information
         previous_positions = []
@@ -363,10 +381,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             count = uniquePositions.mapping.get(pos)
             if count >= 6:
                 bad_positions.append(pos)
-            
-
-        #print(uniquePositions,"\n", uniqueCount,"\n", previous_positions,"\n")
-            
 
         successor = self.get_successor(game_state, action)
         present_agent_state = game_state.data.agent_states[self.index]
@@ -379,21 +393,10 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         curr_pos = present_agent_state.get_position()
         succ_pos = succes_agent_state.get_position()
 
-        walls = game_state.get_walls()
-        width = walls.width
-        height = walls.height
-
-        x_mid = int(width/2) if not self.red else int(width/2) - 1
-
-        midline = []
-        for y in range(0,height):
-            if not game_state.has_wall(x_mid,y):
-                midline.append((x_mid,y))
-
         def getDistFromMiddle(agent_idx):
             dist = float("+inf")
             agent_pos = successor.get_agent_position(agent_idx)
-            for pos in midline:
+            for pos in self.midline:
                 dist = min(dist,self.get_maze_distance(pos,agent_pos))
             return dist
 
@@ -410,7 +413,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         enemy_scared_factor = sum(enemy_scared_timers)/len(enemy_scared_timers)
 
         invaders = [a for a in enemies if a.is_pacman and a.get_position() is not None]
-
+        ghosts = [a for a in enemies if not a.is_pacman and a.get_position() is not None]
 
         ## gathering smallest distance from enemies and also the index of the closest enemy
         for index, x in enumerate(enemiesList):
@@ -447,7 +450,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             
             for food in food_positions:
                 if not food in visited:
-                    island = 
+                    island = breadth_first_search(food)
 
             return islands
 
@@ -541,6 +544,10 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             return (int(avg_x) , int(avg_y))
 
         def get_your_half_center():
+            teamfoodList = CurrentTeamFood.as_list()
+            if len(teamfoodList) == 0:
+                return (int(self.x_mid + self.x_mid/2), int(self.height/2))
+            
             curr_x = 0
             curr_y = 0
             for pos in CurrentTeamFood.as_list():
@@ -575,8 +582,8 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
         retreat_threshold = 5 + enemy_scared_factor*0.2
 
-        retreat_mode = 9999999 if succes_agent_state.num_carrying >= retreat_threshold else 1
-
+        retreat_mode = 9999999 if present_agent_state.num_carrying >= retreat_threshold else 0
+        
         double_attack = 1 if all_pacman_on_team() else 0
 
         features['distance_to_food'] = min_distance_food
@@ -589,27 +596,36 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         features["spread_tendency"] = get_buddy_distance()*double_attack
         features['num_invaders'] = len(invaders)
         features["capsule_middle_distance"] = self.get_maze_distance(get_capsule_middle_point(),succ_pos) if any_pacman_from_enemies() and len(teamCapsules) > 0 else 0
-        features["center_ownside_distance"] = self.get_maze_distance(get_your_half_center(),succ_pos)
+        features["center_ownside_distance"] = self.get_maze_distance(get_your_half_center(),succ_pos) if self.active_profile == "defend" else 0
+        features["dont_die"] = -99999 if succ_pos == self.start else 0
+        
         max_tweak_dist = 0
-
         for pos in bad_positions:
             max_tweak_dist = max(self.get_maze_distance(succ_pos,pos),max_tweak_dist)
-
         features["anti-tweak"] = max_tweak_dist
 
+        if ghosts:
+            dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in ghosts]
+            features["ghost_distance"] = min(dists)
+
         if any_pacman_from_enemies():
-            dists = None
+            dists = []
             if len(invaders) > 0:
                 dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in invaders]
-            else:
-                dists = enemyDistances
-            features['invader_distance'] = min(dists)
+            features['invader_distance'] = min(dists) if dists else 0
 
         features["barely_evade"] = 1 if features['invader_distance'] == 1 and is_scared else 0
 
-        if action == Directions.STOP: features['stop'] = 1 if not bad_positions else 2000
+        if action == Directions.STOP:
+            features['stop'] = 1 if not bad_positions else 2000
+
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
         if action == rev: features['reverse'] = 1 if not bad_positions else 1000    
+
+        for dead_path in self.dead_paths:
+            if succ_pos in dead_path and succes_agent_state.is_pacman:
+                print("entering dead end")
+
 
         ## determine what profile will be used
         if should_i_defend() and any_pacman_from_enemies():
@@ -617,12 +633,12 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         else:
             self.active_profile = "attack"
 
-        #if self.active_profile == "defend":
-        #    self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
-        #elif self.active_profile == "attack":
-        #    self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
-        #else:
-        #    print("no profile")
+        if self.active_profile == "defend":
+            self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
+        elif self.active_profile == "attack":
+            self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
+        else:
+            print("no profile")
             
         #if len(teamCapsules) > 0:
         #    self.debug_draw(avg_of_two_pos(get_capsule_middle_point(),get_your_half_center()),color=(1,1,1))
@@ -630,17 +646,17 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         return features
         
     def get_weights(self, game_state, action):
-        attack_profile = {"distance_to_food": -5, "distance_to_capsule": -10, "remaining_capsules": -1000 , "closest_enemy_dist": 10,
-                           "remaining_food": -1000, "return_urgency": 2, "successor_score": 1,
-                             "spread_tendency": 4, "num_invaders": -1000, "invader_distance": -11,
-                              "stop": -100, "reverse": -1, "capsule_middle_distance": 0,
-                              "barely_evade": -99999, "anti-tweak": -50}
+
+        attack_profile = {"distance_to_food": -5, "distance_to_capsule": -6, "remaining_capsules": -1000, "remaining_food": -100,
+                            "return_urgency": 1, "successor_score": 1,
+                            "spread_tendency": 2, "num_invaders": -1000, "invader_distance": -5,
+                            "stop": -100, "reverse": 0,"barely_evade": -99999, "ghost_distance": 1, "dont_die": 1}
         
-        defend_profile = {"num_invaders": -1000, "invader_distance": -10, "stop": -100, "reverse": -2,
-                            "capsule_middle_distance": 0, "closest_enemy_dist": -2, "center_ownside_distance": -5,
-                            "barely_evade": -99999, "spread_tendency": 5, "anti-tweak": -50}
+        defend_profile = {"num_invaders": -1000, "invader_distance": -10, "stop": -100, "reverse": -1,
+                            "closest_enemy_dist": -2, "center_ownside_distance": -5,
+                            "barely_evade": -99999, "spread_tendency": 5, "dont_die": 1}
         
-        
+
         chosen_profile = defend_profile if self.active_profile == "defend" else attack_profile
         return chosen_profile
 
