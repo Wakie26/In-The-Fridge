@@ -940,8 +940,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
             return islands
 
-        get_food_islands()
-
         def get_neighbor_walls(x,y):
             neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
             walls = []
@@ -1025,7 +1023,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
     def get_features(self, game_state, action):
         features = util.Counter()
-        #self.debug_clear()
+        self.debug_clear()
 
         ## general information
         previous_positions = []
@@ -1305,8 +1303,8 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
         for dead_path in self.dead_paths:
             if succ_pos in dead_path and succes_agent_state.is_pacman:
-                print(dead_path)
-                print(features["ghost_distance"],len(dead_path))
+                #print(dead_path)
+                #print(features["ghost_distance"],len(dead_path))
                 if non_scared_ghosts and features["ghost_distance"] <= len(dead_path):
                     features["no_dead_end"] = -99999999
 
@@ -1318,12 +1316,12 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             self.active_profile = "attack"
 
         
-        if self.active_profile == "defend":
-            self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
-        elif self.active_profile == "attack":
-            self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
-        else:
-            print("no profile")
+        #if self.active_profile == "defend":
+        #    self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
+        #elif self.active_profile == "attack":
+        #    self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
+        #else:
+        #    print("no profile")
             
 
         #if len(teamCapsules) > 0:
