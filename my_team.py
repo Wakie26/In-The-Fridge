@@ -860,7 +860,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
     # eet geen powerups als je nog lang powered up bent
     # eet wel een powerup als je zo net niemeer powered up gaat zijn
         # vgl distance to powerup met timer van powered up => als ze gelijk zijn ga dan naar de powerup
-        # als de ghosts net scared zijn geworden, probeer ze dan niet direct op te eten, gwn beetje negeren
 
     def register_initial_state(self, game_state):
         self.start = game_state.get_agent_position(self.index)
@@ -1103,30 +1102,49 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
             return islands
 
-        food_islands = get_food_islands()
+        if curr_pos == self.start:
+            self.food_islands = get_food_islands()
+
         largest_island = None
         max_length = 0
-        for island in food_islands:
+        for island in self.food_islands:
             if len(island) > max_length:
                 max_length = len(island)
                 largest_island = island
+
+        largest_still_exists = False
+        for pos in largest_island:
+            if food_matrix[pos[0]][pos[1]]:
+                largest_still_exists = True
+        
+        if not largest_still_exists:
+            self.food_islands = get_food_islands() ## recalc if largest food island has been eaten
 
         def distance_from_island(island):
             min_distance = float("+inf")
             for pos in island:
                 min_distance = min(min_distance, self.get_maze_distance(succ_pos,pos))
-                self.debug_draw(pos,color=(0.1,0.2,0.2))
             return min_distance    
 
         capsules_list = self.get_capsules(successor)
         min_distance_cap = min([self.get_maze_distance(succ_pos, cap) for cap in capsules_list]) if len(capsules_list) > 0 else 0
 
-        if min_distance_cap == 1 and len(capsules_list) > 0:
-            self.most_recent_capsule_consumption = turns_left
-            
+        missing_capusles = []
+        prev_observation = self.get_previous_observation()
+        if prev_observation is not None:
+            Prevcaps = self.get_capsules(prev_observation)
+            missing_capusles = [element for element in Prevcaps if element not in capsules_list]
+
+        if missing_capusles:
+            self.most_recent_capsule_consumption = time_left
+
         powerup_deadline = self.most_recent_capsule_consumption - 40 if self.most_recent_capsule_consumption > 0 else 100000
         is_powered_up = turns_left > powerup_deadline
-        powerup_remaining_time = turns_left - powerup_deadline if self.most_recent_capsule_consumption > 0 else 0
+
+        if scared_ghosts:
+            powerup_remaining_time = scared_ghosts[0].scared_timer
+        else:
+            powerup_remaining_time = turns_left - powerup_deadline if self.most_recent_capsule_consumption > 0 else 0
 
         #for index, island in enumerate(get_food_islands(self.get_food_you_are_defending(game_state))):
         #    increment = 1/len(get_food_islands(self.get_food_you_are_defending(game_state)))
@@ -1253,14 +1271,23 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
         retreat_threshold = 5 + enemy_scared_factor*0.2
 
-        retreat_mode = 9999999 if present_agent_state.num_carrying >= retreat_threshold else 0
+        retreat_mode = 1 if present_agent_state.num_carrying >= retreat_threshold else 0
 
         double_attack = 1 if all_pacman_on_team() else 0
 
+        if powerup_remaining_time > 0:
+            if powerup_remaining_time <= min_distance_cap:
+                features['distance_to_capsule'] = min_distance_cap
+            else:
+                features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
+            features["remaining_capsules"] = -len(capsules_list)
+        else:
+            features["remaining_capsules"] = len(capsules_list)
+            features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
+            
+        
         features['distance_to_food'] = min_distance_food
         features["distance_to_largest_food_island"] = distance_from_island(largest_island)
-        features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
-        features["remaining_capsules"] = len(capsules_list)
         features["closest_enemy_dist"] = closestEnemyDist
         features["remaining_food"] = len(food_list)
         features["return_urgency"] = -getDistFromMiddle(self.index)*retreat_mode
@@ -1269,7 +1296,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         features['num_invaders'] = len(invaders)
         features["capsule_middle_distance"] = self.get_maze_distance(get_capsule_middle_point(),succ_pos) if any_pacman_from_enemies() and len(teamCapsules) > 0 else 0
         features["center_ownside_distance"] = self.get_maze_distance(get_your_half_center(),succ_pos) if self.active_profile == "defend" else 0
-        features["dont_die"] = -99999 if succ_pos == self.start else 0
+        features["dont_die"] = -999999 if succ_pos == self.start else 0
         features["anti_tweak"] = 1 if succ_pos in bad_positions else 0
 
         #max_tweak_dist = 0
@@ -1306,7 +1333,8 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             if succ_pos in dead_path and succes_agent_state.is_pacman:
                 #print(dead_path)
                 #print(features["ghost_distance"],len(dead_path))
-                if non_scared_ghosts and features["ghost_distance"] <= len(dead_path):
+                if non_scared_ghosts and features["ghost_distance"] <= 2*len(dead_path) + 1:
+                    print("not entering dead end")
                     features["no_dead_end"] = -99999999
 
 
@@ -1340,7 +1368,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             "distance_to_largest_food_island": -9,
             "distance_to_capsule": -20,
             "ghost_distance": 10,
-            "return_urgency": 1,
+            "return_urgency": 1000,
             "anti_tweak": -1000,
             "spread_tendency": 2,
             "num_invaders": -1000,
