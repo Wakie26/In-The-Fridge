@@ -417,6 +417,24 @@ class ApproximateFridgeAgent(CaptureAgent):
         prev_positions_counted = util.Counter(previous_positions)
         bad_positions = [key for key, value in prev_positions_counted.items() if value >= 4]
 
+        previous_positions = []
+        for observ in self.observation_history[-12: ]:
+            position = observ.get_agent_position(self.index)
+            previous_positions.append(position)
+
+        uniquePositions = CountList(previous_positions).keys()
+        uniqueCount = CountList(previous_positions).values()
+        bad_positions = []
+        #print(uniquePositions.mapping.get())
+
+        for pos in uniquePositions.mapping:
+            count = uniquePositions.mapping.get(pos)
+            if count >= 6:
+                bad_positions.append(pos)
+
+
+        if bad_positions: print("anti-tweakin")
+
         successor = self.get_successor(game_state, action)
         present_agent_state = game_state.data.agent_states[self.index]
         succes_agent_state = successor.data.agent_states[self.index]
@@ -472,6 +490,8 @@ class ApproximateFridgeAgent(CaptureAgent):
         for index in self.get_team(game_state):
             if index != self.index:
                 teammate_idx = index
+
+        game_state.get
 
         ## if a fooddot disappears on our side, we know an enemy pacman is at that location
 
@@ -556,7 +576,7 @@ class ApproximateFridgeAgent(CaptureAgent):
             return closest
         
         def closest_to_pacman():
-            return 
+            teammate_distance = self.get_maze_distance(successor.get_agent_position(teammate_idx), invader_pos)
         
         def get_buddy_distance():
             teammate_pos = successor.get_agent_position(teammate_idx)
@@ -715,7 +735,7 @@ class ApproximateFridgeAgent(CaptureAgent):
             features['stop'] = 1 if not bad_positions else 2000
 
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
-        if action == rev: features['reverse'] = 1 if not bad_positions else 1000    
+        if action == rev: features['reverse'] = 10 if not bad_positions else 100000    
 
         for dead_path in self.dead_paths:
             if succ_pos in dead_path and succes_agent_state.is_pacman:
@@ -856,10 +876,6 @@ class ApproximateFridgeAgent(CaptureAgent):
         CaptureAgent.final(self, state)
 
 class SmartFridgeAgent(ReflexCaptureAgent):
-    # idee: eet ghosts die scared zijn pas wnr hun timer bijna op is
-    # eet geen powerups als je nog lang powered up bent
-    # eet wel een powerup als je zo net niemeer powered up gaat zijn
-        # vgl distance to powerup met timer van powered up => als ze gelijk zijn ga dan naar de powerup
 
     def register_initial_state(self, game_state):
         self.start = game_state.get_agent_position(self.index)
@@ -959,17 +975,28 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
 
     def get_features(self, game_state, action):
+        #
         features = util.Counter()
         self.debug_clear()
 
         ## general information
         previous_positions = []
-        for observ in self.observation_history[-14: ]:
+        for observ in self.observation_history[-12: ]:
             position = observ.get_agent_position(self.index)
             previous_positions.append(position)
 
-        prev_positions_counted = util.Counter(previous_positions)
-        bad_positions = [key for key, value in prev_positions_counted.items() if value >= 4]
+        uniquePositions = CountList(previous_positions).keys()
+        uniqueCount = CountList(previous_positions).values()
+        bad_positions = []
+        #print(uniquePositions.mapping.get())
+
+        for pos in uniquePositions.mapping:
+            count = uniquePositions.mapping.get(pos)
+            if count >= 6:
+                bad_positions.append(pos)
+
+        #prev_positions_counted = util.Counter(previous_positions)
+        #bad_positions = [key for key, value in prev_positions_counted.items() if value >= 4]
 
         successor = self.get_successor(game_state, action)
         present_agent_state = game_state.data.agent_states[self.index]
@@ -983,7 +1010,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         agentDistances =  successor.get_agent_distances()
         curr_pos = present_agent_state.get_position()
         succ_pos = succes_agent_state.get_position()
-
 
         def getDistFromMiddle(agent_idx):
             dist = float("+inf")
@@ -1028,6 +1054,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             if index != self.index:
                 teammate_idx = index
 
+        teammate_pos = game_state.get_agent_position(teammate_idx)
         ## if a fooddot disappears on our side, we know an enemy pacman is at that location
 
         missing_food = []
@@ -1178,7 +1205,9 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             return closest
         
         def closest_to_pacman():
-            return 
+            teammate_distance = self.get_maze_distance(game_state.get_agent_position(teammate_idx), invader_pos)
+            my_distance = self.get_maze_distance(curr_pos, invader_pos)
+            return my_distance == min(my_distance,teammate_distance)
         
         def get_buddy_distance():
             teammate_pos = successor.get_agent_position(teammate_idx)
@@ -1194,14 +1223,15 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 return False
             elif game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
                 ##both pacman
-                return closest_to_midline()
+                return closest_to_pacman() if invader_pos else closest_to_midline()
             else:
                 ## both ghost
                 if any_pacman_from_enemies():
-                    return not closest_to_midline()
+                    return closest_to_pacman() if invader_pos else closest_to_midline()
                 else:
-                    return closest_to_midline()
+                    return not closest_to_pacman() if invader_pos else closest_to_midline()
 
+        
         def get_capsule_middle_point():
             curr_x = 0
             curr_y = 0
@@ -1269,7 +1299,8 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             total_y = pos1[1] + pos2[1]
             return (total_x*0.5, total_y*0.5)
 
-        retreat_threshold = 5 + enemy_scared_factor*0.2
+        no_dangerghosts = 5 if not non_scared_ghosts else 0
+        retreat_threshold = 5 + enemy_scared_factor*0.2 + no_dangerghosts
 
         retreat_mode = 1 if present_agent_state.num_carrying >= retreat_threshold else 0
 
@@ -1304,14 +1335,23 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         #    max_tweak_dist = max(self.get_maze_distance(succ_pos,pos),max_tweak_dist)
         #features["anti-tweak"] = max_tweak_dist
 
+        invader_pos = None
+
+        if missing_food:
+            invader_pos = missing_food[0]
+
         if non_scared_ghosts:
             dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts]
             features["ghost_distance"] = min(dists)
 
         if any_pacman_from_enemies() and len(invaders) > 0:
-            dists = []
-            dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in invaders]
-            features['invader_distance'] = min(dists) if dists else 0
+            closest_dist = float("+inf")
+            for inv in invaders:
+                inv_pos = inv.get_position()
+                closest_dist = min(self.get_maze_distance(succ_pos,inv_pos), closest_dist)
+                if self.get_maze_distance(succ_pos,inv_pos) == closest_dist:
+                    invader_pos = inv_pos
+            features['invader_distance'] = closest_dist if invaders else 0
         
         if any_pacman_from_enemies() and len(invaders) == 0:
             dist = None
@@ -1334,7 +1374,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 #print(dead_path)
                 #print(features["ghost_distance"],len(dead_path))
                 if non_scared_ghosts and features["ghost_distance"] <= 2*len(dead_path) + 1:
-                    print("not entering dead end")
                     features["no_dead_end"] = -99999999
 
 
@@ -1389,7 +1428,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             "barely_evade": -5000, 
             "spread_tendency": 10,
             "stop": -100,
-            "reverse": -2,
+            "reverse": -1,
             "dont_die": 1,
             "successor_score": 10}
         
