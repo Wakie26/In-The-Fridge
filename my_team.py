@@ -35,7 +35,7 @@ from collections import Counter as CountList
 #################
 
 def create_team(first_index, second_index, is_red,
-                first='SmartFridgeAgent', second='SmartFridgeAgent', num_training=10):
+                first='SmartFridgeAgent', second='SmartFridgeAgent', num_training=0):
     """
     This function should return a list of two agents that will form the
     team, initialized using firstIndex and secondIndex as their agent
@@ -436,7 +436,7 @@ class ApproximateFridgeAgent(CaptureAgent):
         if bad_positions: print("anti-tweakin")
 
         successor = self.get_successor(game_state, action)
-        present_agent_state = game_state.data.agent_states[self.index]
+        current_agent_state = game_state.data.agent_states[self.index]
         succes_agent_state = successor.data.agent_states[self.index]
         time_left = game_state.data.timeleft
         turns_left = int(time_left/4)
@@ -445,7 +445,7 @@ class ApproximateFridgeAgent(CaptureAgent):
         is_scared = scared_timer > 0
 
         agentDistances =  successor.get_agent_distances()
-        curr_pos = present_agent_state.get_position()
+        curr_pos = current_agent_state.get_position()
         succ_pos = succes_agent_state.get_position()
 
         def getDistFromMiddle(agent_idx):
@@ -689,7 +689,7 @@ class ApproximateFridgeAgent(CaptureAgent):
 
         retreat_threshold = 5 + enemy_scared_factor*0.2
 
-        retreat_mode = 9999999 if present_agent_state.num_carrying >= retreat_threshold else 0
+        retreat_mode = 9999999 if current_agent_state.num_carrying >= retreat_threshold else 0
 
         double_attack = 1 if all_pacman_on_team() else 0
 
@@ -892,6 +892,8 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
         self.clock = 0
         self.eaten_fooddot = None
+        
+        self.enemies = self.get_opponents(game_state)
 
         def get_neighbor_walls(x,y):
             neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
@@ -973,90 +975,63 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
         self.dead_paths = get_all_dead_paths()
 
+    def get_closest_enemy_distance(self, game_state):
+            """
+            returns a tuple (x,y) of the closest enemy agent (with noise)
+            enumerates over 
+            """
+            enemyDistances = []
+            agentDistances =  game_state.get_agent_distances()
+            closestEnemyDist = float("+inf")
+            for index, x in enumerate(self.enemies):
+                enemyDistances.append(agentDistances[x])
+                if enemyDistances[index] < closestEnemyDist:
+                    closestEnemyDist = enemyDistances[index]
+
+            return min(enemyDistances)
+    
+    def get_teammate_info(self, game_state):
+            """
+            returns a tuple: (teammate_idx, teammate_position) for unpacking
+            """    
+            teammate_idx = None
+            for index in self.get_team(game_state):
+                if index != self.index:
+                    teammate_idx = index
+            return teammate_idx, game_state.get_agent_position(teammate_idx)
 
     def get_features(self, game_state, action):
-        #
         features = util.Counter()
         self.debug_clear()
 
-        ## general information
-        previous_positions = []
-        for observ in self.observation_history[-12: ]:
-            position = observ.get_agent_position(self.index)
-            previous_positions.append(position)
-
-        uniquePositions = CountList(previous_positions).keys()
-        uniqueCount = CountList(previous_positions).values()
-        bad_positions = []
-        #print(uniquePositions.mapping.get())
-
-        for pos in uniquePositions.mapping:
-            count = uniquePositions.mapping.get(pos)
-            if count >= 6:
-                bad_positions.append(pos)
-
-        #prev_positions_counted = util.Counter(previous_positions)
-        #bad_positions = [key for key, value in prev_positions_counted.items() if value >= 4]
-
+        ## variables
         successor = self.get_successor(game_state, action)
-        present_agent_state = game_state.data.agent_states[self.index]
+        current_agent_state = game_state.data.agent_states[self.index]
         succes_agent_state = successor.data.agent_states[self.index]
+        curr_pos = current_agent_state.get_position()
+        succ_pos = succes_agent_state.get_position()
+
         time_left = game_state.data.timeleft
         turns_left = int(time_left/4)
-
         scared_timer = succes_agent_state.scared_timer
         is_scared = scared_timer > 0
 
-        agentDistances =  successor.get_agent_distances()
-        curr_pos = present_agent_state.get_position()
-        succ_pos = succes_agent_state.get_position()
+        closest_enemy_distance = self.get_closest_enemy_distance(successor)
 
-        def getDistFromMiddle(agent_idx):
-            dist = float("+inf")
-            agent_pos = successor.get_agent_position(agent_idx)
-            for pos in self.midline:
-                dist = min(dist,self.get_maze_distance(pos,agent_pos))
-            return dist
-
-        ## info about enemies
-        enemiesList = self.get_opponents(successor)
-        enemyDistances = []
-        enemyStates = []
-        closestEnemyDist = float("+inf")
-
-        enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
-
-        enemy_scared_timers = [enemy.scared_timer for enemy in enemies]
-
+        enemy_states = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+        enemy_scared_timers = [enemy.scared_timer for enemy in enemy_states]
         enemy_scared_factor = sum(enemy_scared_timers)/len(enemy_scared_timers)
 
-        invaders = [a for a in enemies if a.is_pacman and a.get_position() is not None]
-        ghosts = [a for a in enemies if not a.is_pacman and a.get_position() is not None]
-        scared_ghosts = [enemy for enemy in enemies if not enemy.is_pacman and enemy.scared_timer > 0]
+        invaders = [a for a in enemy_states if a.is_pacman and a.get_position() is not None]
+        ghosts = [a for a in enemy_states if not a.is_pacman and a.get_position() is not None]
+        scared_ghosts = [enemy for enemy in enemy_states if not enemy.is_pacman and enemy.scared_timer > 0]
         non_scared_ghosts = [a for a in ghosts if a.scared_timer == 0]
-
-        ## gathering smallest distance from enemies and also the index of the closest enemy
-        for index, x in enumerate(enemiesList):
-            enemyDistances.append(agentDistances[x])
-            enemyStates.append(game_state.get_agent_state(x))
-
-            if enemyDistances[index] < closestEnemyDist:
-                closestEnemyDist = enemyDistances[index]
-
-        closestEnemyDist = min(enemyDistances)
-        
-
-        ## info about our side
         teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
         CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
-        teammate_idx = None
-        for index in self.get_team(game_state):
-            if index != self.index:
-                teammate_idx = index
+        
+        teammate_idx, teammate_position = self.get_teammate_info(game_state)
 
-        teammate_pos = game_state.get_agent_position(teammate_idx)
         ## if a fooddot disappears on our side, we know an enemy pacman is at that location
-
         missing_food = []
         prev_observation = self.get_previous_observation()
         if prev_observation is not None:
@@ -1077,6 +1052,31 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
         
         ## computed heuristics
+        previous_positions = []
+        for observ in self.observation_history[-12: ]:
+            position = observ.get_agent_position(self.index)
+            previous_positions.append(position)
+
+        uniquePositions = CountList(previous_positions).keys()
+        uniqueCount = CountList(previous_positions).values()
+        bad_positions = []
+        #print(uniquePositions.mapping.get())
+
+        for pos in uniquePositions.mapping:
+            count = uniquePositions.mapping.get(pos)
+            if count >= 6:
+                bad_positions.append(pos)
+
+        #prev_positions_counted = util.Counter(previous_positions)
+        #bad_positions = [key for key, value in prev_positions_counted.items() if value >= 4]
+
+        def getDistFromMiddle(agent_idx):
+            dist = float("+inf")
+            agent_pos = successor.get_agent_position(agent_idx)
+            for pos in self.midline:
+                dist = min(dist,self.get_maze_distance(pos,agent_pos))
+            return dist
+
         food_matrix = self.get_food(successor)
         food_list = food_matrix.as_list()
         min_distance_food = min([self.get_maze_distance(succ_pos, food) for food in food_list])
@@ -1185,7 +1185,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             return True
         
         def any_pacman_from_enemies():
-            for index in enemiesList:
+            for index in self.enemies:
                 if game_state.get_agent_state(index).is_pacman:
                     return True
             return False
@@ -1231,7 +1231,30 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 else:
                     return not closest_to_pacman() if invader_pos else closest_to_midline()
 
-        
+        def validate_position(position):
+            x,y = position
+
+            if not game_state.has_wall(int(x) , int(y)):
+                return (int(x),int(y))
+            
+            if not game_state.has_wall(int(x) + 1 , int(y)):
+                return (int(x) + 1 , int(y))
+            elif not game_state.has_wall(int(x) + 1 , int(y) + 1):
+                return (int(x) + 1 , int(y) + 1)
+            elif not game_state.has_wall(int(x) , int(y) +1 ):
+                return (int(x) , int(y) +1 )
+            elif not game_state.has_wall(int(x) -1 , int(y) + 1):
+                return (int(x) - 1 , int(y + 1))
+            elif not game_state.has_wall(int(x) - 1 , int(y)):
+                return (int(x) - 1 , int(y))
+            elif not game_state.has_wall(int(x) - 1 , int(y) - 1):
+                return (int(x) - 1 , int(y) - 1)
+            elif not game_state.has_wall(int(x) , int(y) - 1):
+                return (int(x) , int(y) - 1)
+            elif not game_state.has_wall(int(x) + 1 , int(y) - 1):
+                return (int(x) + 1 , int(y) - 1)
+
+
         def get_capsule_middle_point():
             curr_x = 0
             curr_y = 0
@@ -1241,26 +1264,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             avg_x = curr_x / len(teamCapsules)
             avg_y = curr_y / len(teamCapsules)
             #self.debug_draw((avg_x,avg_y),color=(0.8,0.2,0.8))
-            if game_state.has_wall(int(avg_x) , int(avg_y)):
-                if not game_state.has_wall(int(avg_x) + 1 , int(avg_y)):
-                    return (int(avg_x) + 1 , int(avg_y))
-                elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) + 1):
-                    return (int(avg_x) + 1 , int(avg_y) + 1)
-                elif not game_state.has_wall(int(avg_x) , int(avg_y) +1 ):
-                    return (int(avg_x) , int(avg_y) +1 )
-                elif not game_state.has_wall(int(avg_x) -1 , int(avg_y) + 1):
-                    return (int(avg_x) - 1 , int(avg_y + 1))
-                elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y)):
-                    return (int(avg_x) - 1 , int(avg_y))
-                elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y) - 1):
-                    return (int(avg_x) - 1 , int(avg_y) - 1)
-                elif not game_state.has_wall(int(avg_x) , int(avg_y) - 1):
-                    return (int(avg_x) , int(avg_y) - 1)
-                elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) - 1):
-                    return (int(avg_x) + 1 , int(avg_y) - 1)
-                
-            
-            return (int(avg_x) , int(avg_y))
+            return validate_position((avg_x,avg_y))
 
         def get_your_half_center():
             teamfoodList = CurrentTeamFood.as_list()
@@ -1275,24 +1279,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             avg_x = curr_x/len(CurrentTeamFood.as_list())
             avg_y = curr_y/len(CurrentTeamFood.as_list())
             #self.debug_draw((avg_x,avg_y),color=(0.2,0.1,0.8))
-            if game_state.has_wall(int(avg_x) , int(avg_y)):
-                if not game_state.has_wall(int(avg_x) + 1 , int(avg_y)):
-                    return (int(avg_x) + 1 , int(avg_y))
-                elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) + 1):
-                    return (int(avg_x) + 1 , int(avg_y) + 1)
-                elif not game_state.has_wall(int(avg_x) , int(avg_y) +1 ):
-                    return (int(avg_x) , int(avg_y) +1 )
-                elif not game_state.has_wall(int(avg_x) -1 , int(avg_y) + 1):
-                    return (int(avg_x) - 1 , int(avg_y + 1))
-                elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y)):
-                    return (int(avg_x) - 1 , int(avg_y))
-                elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y) - 1):
-                    return (int(avg_x) - 1 , int(avg_y) - 1)
-                elif not game_state.has_wall(int(avg_x) , int(avg_y) - 1):
-                    return (int(avg_x) , int(avg_y) - 1)
-                elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) - 1):
-                    return (int(avg_x) + 1 , int(avg_y) - 1)
-            return (int(avg_x) , int(avg_y))
+            return validate_position((avg_x,avg_y))
             
         def avg_of_two_pos(pos1, pos2):
             total_x = pos1[0] + pos2[0]
@@ -1302,7 +1289,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         no_dangerghosts = 5 if not non_scared_ghosts else 0
         retreat_threshold = 5 + enemy_scared_factor*0.2 + no_dangerghosts
 
-        retreat_mode = 1 if present_agent_state.num_carrying >= retreat_threshold else 0
+        retreat_mode = 1 if current_agent_state.num_carrying >= retreat_threshold else 0
 
         double_attack = 1 if all_pacman_on_team() else 0
 
@@ -1319,7 +1306,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         
         features['distance_to_food'] = min_distance_food
         features["distance_to_largest_food_island"] = distance_from_island(largest_island)
-        features["closest_enemy_dist"] = closestEnemyDist
+        features["closest_enemy_dist"] = closest_enemy_distance
         features["remaining_food"] = len(food_list)
         features["return_urgency"] = -getDistFromMiddle(self.index)*retreat_mode
         features['successor_score'] = self.get_score(successor)
