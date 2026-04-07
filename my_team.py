@@ -567,17 +567,7 @@ class ApproximateFridgeAgent(CaptureAgent):
             if my_home_distance == teammate_home_distance:
                 return self.index == min(self.get_team(game_state))
             return my_home_distance == min(my_home_distance,teammate_home_distance)
-
-        def closest_pacman(agent_idx):
-            closest = float("+inf")
-            for index, dist in enumerate(game_state.get_agent_distances()):
-                if game_state.get_agent_state(index).is_pacman and not index in self.get_team(game_state): ## agent is an enemy and is a pacman
-                    closest = min(closest,dist)
-            return closest
-        
-        def closest_to_pacman():
-            teammate_distance = self.get_maze_distance(successor.get_agent_position(teammate_idx), invader_pos)
-        
+                
         def get_buddy_distance():
             teammate_pos = successor.get_agent_position(teammate_idx)
             dist = self.get_maze_distance(succ_pos,teammate_pos)
@@ -977,8 +967,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
     def get_closest_enemy_distance(self, game_state):
             """
-            returns a tuple (x,y) of the closest enemy agent (with noise)
-            enumerates over 
+            returns a tuple (x,y) of the closest enemy agent (with noise) 
             """
             enemyDistances = []
             agentDistances =  game_state.get_agent_distances()
@@ -999,6 +988,30 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 if index != self.index:
                     teammate_idx = index
             return teammate_idx, game_state.get_agent_position(teammate_idx)
+
+    def get_missing_food(self, CurrentTeamFood):
+            """
+            returns tuple (x,y) of the most recently eaten fooddot if one has been eaten in the past 30 actions, returns None otherwise.
+            """
+            missing_food = []
+            prev_observation = self.get_previous_observation()
+            if prev_observation is not None:
+                PrevTeamFood = self.get_food_you_are_defending(prev_observation)
+                missing_food = [element for element in PrevTeamFood.as_list() if element not in CurrentTeamFood.as_list()]
+        
+            missing_food_updated = False
+            if len(missing_food) > 0:
+                missing_food_updated = True
+
+            if missing_food_updated:
+                self.eaten_fooddot = missing_food[0]
+                self.clock = 1
+            if not missing_food_updated:
+                self.clock += 1
+            if self.clock > 30:
+                self.eaten_fooddot = None
+            
+            return missing_food[0] if missing_food else None
 
     def get_features(self, game_state, action):
         features = util.Counter()
@@ -1030,27 +1043,9 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
         
         teammate_idx, teammate_position = self.get_teammate_info(game_state)
+                
+        invader_pos = self.get_missing_food(CurrentTeamFood)
 
-        ## if a fooddot disappears on our side, we know an enemy pacman is at that location
-        missing_food = []
-        prev_observation = self.get_previous_observation()
-        if prev_observation is not None:
-            PrevTeamFood = self.get_food_you_are_defending(prev_observation)
-            missing_food = [element for element in PrevTeamFood.as_list() if element not in CurrentTeamFood.as_list()]
-        
-        missing_food_updated = False
-        if len(missing_food) > 0:
-            missing_food_updated = True
-
-        if missing_food_updated:
-            self.eaten_fooddot = missing_food[0]
-            self.clock = 1
-        if not missing_food_updated:
-            self.clock += 1
-        if self.clock > 30:
-            self.eaten_fooddot = None
-
-        
         ## computed heuristics
         previous_positions = []
         for observ in self.observation_history[-12: ]:
@@ -1237,22 +1232,13 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             if not game_state.has_wall(int(x) , int(y)):
                 return (int(x),int(y))
             
-            if not game_state.has_wall(int(x) + 1 , int(y)):
-                return (int(x) + 1 , int(y))
-            elif not game_state.has_wall(int(x) + 1 , int(y) + 1):
-                return (int(x) + 1 , int(y) + 1)
-            elif not game_state.has_wall(int(x) , int(y) +1 ):
-                return (int(x) , int(y) +1 )
-            elif not game_state.has_wall(int(x) -1 , int(y) + 1):
-                return (int(x) - 1 , int(y + 1))
-            elif not game_state.has_wall(int(x) - 1 , int(y)):
-                return (int(x) - 1 , int(y))
-            elif not game_state.has_wall(int(x) - 1 , int(y) - 1):
-                return (int(x) - 1 , int(y) - 1)
-            elif not game_state.has_wall(int(x) , int(y) - 1):
-                return (int(x) , int(y) - 1)
-            elif not game_state.has_wall(int(x) + 1 , int(y) - 1):
-                return (int(x) + 1 , int(y) - 1)
+            neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0),
+                         (1, 1), (-1, 1), (1, -1), (-1, -1)]
+            
+            for dx, dy in neighbors:
+                new_x, new_y = (int(x) + dx, int(y) + dy)
+                if not game_state.has_wall(new_x,new_y):
+                    return (new_x,new_y)
 
 
         def get_capsule_middle_point():
@@ -1316,16 +1302,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         features["center_ownside_distance"] = self.get_maze_distance(get_your_half_center(),succ_pos) if self.active_profile == "defend" else 0
         features["dont_die"] = -999999 if succ_pos == self.start else 0
         features["anti_tweak"] = 1 if succ_pos in bad_positions else 0
-
-        #max_tweak_dist = 0
-        #for pos in bad_positions:
-        #    max_tweak_dist = max(self.get_maze_distance(succ_pos,pos),max_tweak_dist)
-        #features["anti-tweak"] = max_tweak_dist
-
-        invader_pos = None
-
-        if missing_food:
-            invader_pos = missing_food[0]
 
         if non_scared_ghosts:
             dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts]
