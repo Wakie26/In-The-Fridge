@@ -1013,6 +1013,125 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             
             return missing_food[0] if missing_food else None
 
+    def get_prev_positions(self):
+            previous_positions = []
+            for observ in self.observation_history[-12: ]:
+                position = observ.get_agent_position(self.index)
+                previous_positions.append(position)
+            return previous_positions
+    
+    def get_bad_positions(self, previous_positions):
+        uniquePositions = CountList(previous_positions).keys()
+        bad_positions = []
+            
+        for pos in uniquePositions.mapping:
+            count = uniquePositions.mapping.get(pos)
+            if count >= 6:
+                bad_positions.append(pos)
+        return bad_positions
+
+    def getDistFromMiddle(self, agent_idx, successor):
+            dist = float("+inf")
+            agent_pos = successor.get_agent_position(agent_idx)
+            for pos in self.midline:
+                dist = min(dist,self.get_maze_distance(pos,agent_pos))
+            return dist
+
+    def get_neighbor_food(self, x,y, food_matrix):
+            neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0),
+                         (1, 1), (-1, 1), (1, -1), (-1, -1)]
+            foods = []
+            non_foods = []
+            for dx, dy in neighbors:
+                neighbor = food_matrix[x+dx][y+dy]
+                if neighbor:
+                    foods.append((x+dx, y+dy))
+                else:
+                    non_foods.append((x+dx, y+dy))
+            return foods, non_foods
+
+    def breadth_first_search_food(self, start, food_matrix):
+            agenda = util.Queue()
+            init_cell = start
+            ## de agenda is een stack van nodes: eerste element is de state, tweede element is het pad tot nu toe
+            agenda.push([init_cell,[init_cell]])
+            Visited = set()
+            Visited.add(init_cell)
+
+            while True:
+                if agenda.is_empty():
+                    return Visited
+
+                current_state = agenda.pop()
+                current_path = current_state[1]
+                current_cell = current_state[0]
+
+                foods, non_foods = self.get_neighbor_food(current_cell[0],current_cell[1], food_matrix)
+
+                for next_cell in foods:
+                    if next_cell not in Visited:
+                        Visited.add(next_cell)
+                        agenda.push([next_cell, current_path + [current_cell]])
+
+    def get_food_islands(self, food_list, food_matrix):
+            islands = []
+            visited = set()
+            
+            for food in food_list:
+                if not food in visited:
+                    visited.add(food)
+                    island = self.breadth_first_search_food(food, food_matrix)
+                    islands.append(island)
+
+            return islands
+
+    def get_largest_food_island(self):
+        largest_island = None
+        max_length = 0
+        for island in self.food_islands:
+            if len(island) > max_length:
+                max_length = len(island)
+                largest_island = island
+        return largest_island
+
+    def update_food_islands(self, curr_pos, food_list, food_matrix):
+            
+            if curr_pos == self.start:
+                self.food_islands = self.get_food_islands(food_list, food_matrix)
+                return 
+
+            largest_island = self.get_largest_food_island()
+
+            largest_still_exists = False
+            for pos in largest_island:
+                if food_matrix[pos[0]][pos[1]]:
+                    largest_still_exists = True
+        
+            if not largest_still_exists:
+                self.food_islands = self.get_food_islands(food_list, food_matrix)
+
+    def distance_from_island(self, island, succ_pos):
+            min_distance = float("+inf")
+            for pos in island:
+                min_distance = min(min_distance, self.get_maze_distance(succ_pos,pos))
+            return min_distance
+
+    def get_missing_capsules(self, capsules_list, time_left):
+            """
+            returns a list of tuples (x,y) of positions where a capsule has been eaten. Also updates self.most_recent_capsule_consumption if a capsule has been eaten
+            """
+            missing_capusles = []
+            prev_observation = self.get_previous_observation()
+
+            if prev_observation is not None:
+                Prevcaps = self.get_capsules(prev_observation)
+                missing_capusles = [element for element in Prevcaps if element not in capsules_list]
+
+            if missing_capusles:
+                self.most_recent_capsule_consumption = time_left
+
+            return missing_capusles
+
     def get_features(self, game_state, action):
         features = util.Counter()
         self.debug_clear()
@@ -1046,119 +1165,19 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 
         invader_pos = self.get_missing_food(CurrentTeamFood)
 
-        ## computed heuristics
-        previous_positions = []
-        for observ in self.observation_history[-12: ]:
-            position = observ.get_agent_position(self.index)
-            previous_positions.append(position)
-
-        uniquePositions = CountList(previous_positions).keys()
-        uniqueCount = CountList(previous_positions).values()
-        bad_positions = []
-        #print(uniquePositions.mapping.get())
-
-        for pos in uniquePositions.mapping:
-            count = uniquePositions.mapping.get(pos)
-            if count >= 6:
-                bad_positions.append(pos)
-
-        #prev_positions_counted = util.Counter(previous_positions)
-        #bad_positions = [key for key, value in prev_positions_counted.items() if value >= 4]
-
-        def getDistFromMiddle(agent_idx):
-            dist = float("+inf")
-            agent_pos = successor.get_agent_position(agent_idx)
-            for pos in self.midline:
-                dist = min(dist,self.get_maze_distance(pos,agent_pos))
-            return dist
+        previous_positions = self.get_prev_positions()
+        bad_positions = self.get_bad_positions(previous_positions)
 
         food_matrix = self.get_food(successor)
         food_list = food_matrix.as_list()
         min_distance_food = min([self.get_maze_distance(succ_pos, food) for food in food_list])
 
-        def get_neighbor_food(x,y):
-            neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0),
-                         (1, 1), (-1, 1), (1, -1), (-1, -1)]
-            foods = []
-            non_foods = []
-            for dx, dy in neighbors:
-                neighbor = food_matrix[x+dx][y+dy]
-                if neighbor:
-                    foods.append((x+dx, y+dy))
-                else:
-                    non_foods.append((x+dx, y+dy))
-            return foods, non_foods
-
-        def breadth_first_search_food(start):
-            agenda = util.Queue()
-            init_cell = start
-            ## de agenda is een stack van nodes: eerste element is de state, tweede element is het pad tot nu toe
-            agenda.push([init_cell,[init_cell]])
-            Visited = set()
-            Visited.add(init_cell)
-
-            while True:
-                if agenda.is_empty():
-                    return Visited
-
-                current_state = agenda.pop()
-                current_path = current_state[1]
-                current_cell = current_state[0]
-
-                foods, non_foods = get_neighbor_food(current_cell[0],current_cell[1])
-
-                for next_cell in foods:
-                    if next_cell not in Visited:
-                        Visited.add(next_cell)
-                        agenda.push([next_cell, current_path + [current_cell]])
-
-        def get_food_islands():
-            islands = []
-            visited = set()
-            
-            for food in food_list:
-                if not food in visited:
-                    visited.add(food)
-                    island = breadth_first_search_food(food)
-                    islands.append(island)
-
-            return islands
-
-        if curr_pos == self.start:
-            self.food_islands = get_food_islands()
-
-        largest_island = None
-        max_length = 0
-        for island in self.food_islands:
-            if len(island) > max_length:
-                max_length = len(island)
-                largest_island = island
-
-        largest_still_exists = False
-        for pos in largest_island:
-            if food_matrix[pos[0]][pos[1]]:
-                largest_still_exists = True
-        
-        if not largest_still_exists:
-            self.food_islands = get_food_islands() ## recalc if largest food island has been eaten
-
-        def distance_from_island(island):
-            min_distance = float("+inf")
-            for pos in island:
-                min_distance = min(min_distance, self.get_maze_distance(succ_pos,pos))
-            return min_distance    
-
+        self.update_food_islands(curr_pos, food_list, food_matrix)
+    
         capsules_list = self.get_capsules(successor)
         min_distance_cap = min([self.get_maze_distance(succ_pos, cap) for cap in capsules_list]) if len(capsules_list) > 0 else 0
-
-        missing_capusles = []
-        prev_observation = self.get_previous_observation()
-        if prev_observation is not None:
-            Prevcaps = self.get_capsules(prev_observation)
-            missing_capusles = [element for element in Prevcaps if element not in capsules_list]
-
-        if missing_capusles:
-            self.most_recent_capsule_consumption = time_left
+            
+        missing_capsules = self.get_missing_capsules(capsules_list, time_left)
 
         powerup_deadline = self.most_recent_capsule_consumption - 40 if self.most_recent_capsule_consumption > 0 else 100000
         is_powered_up = turns_left > powerup_deadline
@@ -1186,8 +1205,8 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             return False
         
         def closest_to_midline():
-            teammate_home_distance = getDistFromMiddle(teammate_idx)
-            my_home_distance = getDistFromMiddle(self.index)
+            teammate_home_distance = self.getDistFromMiddle(teammate_idx, successor)
+            my_home_distance = self.getDistFromMiddle(self.index, successor)
             if my_home_distance == teammate_home_distance:
                 return self.index == min(self.get_team(game_state))
             return my_home_distance == min(my_home_distance,teammate_home_distance)
@@ -1267,11 +1286,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             #self.debug_draw((avg_x,avg_y),color=(0.2,0.1,0.8))
             return validate_position((avg_x,avg_y))
             
-        def avg_of_two_pos(pos1, pos2):
-            total_x = pos1[0] + pos2[0]
-            total_y = pos1[1] + pos2[1]
-            return (total_x*0.5, total_y*0.5)
-
         no_dangerghosts = 5 if not non_scared_ghosts else 0
         retreat_threshold = 5 + enemy_scared_factor*0.2 + no_dangerghosts
 
@@ -1291,10 +1305,10 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             
         
         features['distance_to_food'] = min_distance_food
-        features["distance_to_largest_food_island"] = distance_from_island(largest_island)
+        features["distance_to_largest_food_island"] = self.distance_from_island(self.get_largest_food_island(), succ_pos)
         features["closest_enemy_dist"] = closest_enemy_distance
         features["remaining_food"] = len(food_list)
-        features["return_urgency"] = -getDistFromMiddle(self.index)*retreat_mode
+        features["return_urgency"] = -self.getDistFromMiddle(self.index, successor)*retreat_mode
         features['successor_score'] = self.get_score(successor)
         features["spread_tendency"] = get_buddy_distance()*double_attack
         features['num_invaders'] = len(invaders)
