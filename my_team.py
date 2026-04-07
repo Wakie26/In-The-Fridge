@@ -979,15 +979,15 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
             return min(enemyDistances)
     
-    def get_teammate_info(self, game_state):
+    def get_teammate_index(self, game_state):
             """
-            returns a tuple: (teammate_idx, teammate_position) for unpacking
+            returns an integer: the index of your teammate
             """    
             teammate_idx = None
             for index in self.get_team(game_state):
                 if index != self.index:
                     teammate_idx = index
-            return teammate_idx, game_state.get_agent_position(teammate_idx)
+            return teammate_idx
 
     def get_missing_food(self, CurrentTeamFood):
             """
@@ -1116,21 +1116,96 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 min_distance = min(min_distance, self.get_maze_distance(succ_pos,pos))
             return min_distance
 
-    def get_missing_capsules(self, capsules_list, time_left):
+    def check_for_capsule_consumption(self, capsules_list, time_left):
             """
-            returns a list of tuples (x,y) of positions where a capsule has been eaten. Also updates self.most_recent_capsule_consumption if a capsule has been eaten
+            Updates self.most_recent_capsule_consumption if a capsule has been eaten
             """
-            missing_capusles = []
             prev_observation = self.get_previous_observation()
-
-            if prev_observation is not None:
-                Prevcaps = self.get_capsules(prev_observation)
-                missing_capusles = [element for element in Prevcaps if element not in capsules_list]
-
+            missing_capusles = [element for element in self.get_capsules(prev_observation) if element not in capsules_list] if prev_observation else []
             if missing_capusles:
                 self.most_recent_capsule_consumption = time_left
 
-            return missing_capusles
+    ## predicates
+    def all_pacman_on_team(self, game_state):
+        team_indices = self.get_team(game_state)
+        for index in team_indices:
+            if not game_state.get_agent_state(index).is_pacman:
+                return False
+        return True
+        
+    def any_pacman_from_enemies(self, game_state):
+        for index in self.enemies:
+            if game_state.get_agent_state(index).is_pacman:
+                return True
+        return False
+
+    def closest_to_midline(self, teammate_idx, successor):
+            teammate_home_distance = self.getDistFromMiddle(teammate_idx, successor)
+            my_home_distance = self.getDistFromMiddle(self.index, successor)
+            if my_home_distance == teammate_home_distance:
+                return self.index == min(self.get_team(successor))
+            return my_home_distance == min(my_home_distance,teammate_home_distance)
+
+    def closest_to_pacman(self, teammate_pos, curr_pos, invader_pos):
+            teammate_distance = self.get_maze_distance(teammate_pos, invader_pos)
+            my_distance = self.get_maze_distance(curr_pos, invader_pos)
+            return my_distance == min(my_distance,teammate_distance)
+
+    def should_i_defend(self, game_state, teammate_idx, invader_pos, curr_pos, teammate_position, successor):
+            if not game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
+                ## I am ghost and buddy is pacman -> me
+                return True
+            elif game_state.get_agent_state(self.index).is_pacman and not game_state.get_agent_state(teammate_idx).is_pacman:
+                ## I am pac and buddy is ghost
+                return False
+            elif game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
+                ##both pacman
+                return self.closest_to_pacman(teammate_position, curr_pos, invader_pos) if invader_pos else self.closest_to_midline(teammate_idx, successor)
+            else:
+                ## both ghost
+                if self.any_pacman_from_enemies(game_state):
+                    return self.closest_to_pacman(teammate_position, curr_pos, invader_pos) if invader_pos else self.closest_to_midline(teammate_idx, successor)
+                else:
+                    return not self.closest_to_pacman(teammate_position, curr_pos, invader_pos) if invader_pos else self.closest_to_midline(teammate_idx, successor)
+
+    def validate_position(self, position, game_state):
+            x,y = position
+
+            if not game_state.has_wall(int(x) , int(y)):
+                return (int(x),int(y))
+            
+            neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0),
+                         (1, 1), (-1, 1), (1, -1), (-1, -1)]
+            
+            for dx, dy in neighbors:
+                new_x, new_y = (int(x) + dx, int(y) + dy)
+                if not game_state.has_wall(new_x,new_y):
+                    return (new_x,new_y)
+
+    def get_capsule_middle_point(self, teamCapsules, game_state):
+            curr_x = 0
+            curr_y = 0
+            for (x,y) in teamCapsules:
+                curr_x += x
+                curr_y += y
+            avg_x = curr_x / len(teamCapsules)
+            avg_y = curr_y / len(teamCapsules)
+            #self.debug_draw((avg_x,avg_y),color=(0.8,0.2,0.8))
+            return self.validate_position((avg_x,avg_y), game_state)
+
+    def get_your_food_center(self, food_list, game_state):
+            if len(food_list) == 0:
+                return (int(self.x_mid + self.x_mid/2), int(self.height/2))
+            
+            curr_x = 0
+            curr_y = 0
+            for pos in food_list:
+                curr_x += pos[0]
+                curr_y += pos[1]
+            avg_x = curr_x/len(food_list)
+            avg_y = curr_y/len(food_list)
+            #self.debug_draw((avg_x,avg_y),color=(0.2,0.1,0.8))
+            return self.validate_position((avg_x,avg_y), game_state)
 
     def get_features(self, game_state, action):
         features = util.Counter()
@@ -1161,7 +1236,8 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
         CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
         
-        teammate_idx, teammate_position = self.get_teammate_info(game_state)
+        teammate_idx = self.get_teammate_index(game_state)
+        teammate_position = game_state.get_agent_position(teammate_idx)
                 
         invader_pos = self.get_missing_food(CurrentTeamFood)
 
@@ -1171,127 +1247,24 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         food_matrix = self.get_food(successor)
         food_list = food_matrix.as_list()
         min_distance_food = min([self.get_maze_distance(succ_pos, food) for food in food_list])
-
         self.update_food_islands(curr_pos, food_list, food_matrix)
-    
+
         capsules_list = self.get_capsules(successor)
         min_distance_cap = min([self.get_maze_distance(succ_pos, cap) for cap in capsules_list]) if len(capsules_list) > 0 else 0
-            
-        missing_capsules = self.get_missing_capsules(capsules_list, time_left)
-
+        
+        self.check_for_capsule_consumption(capsules_list, time_left)
         powerup_deadline = self.most_recent_capsule_consumption - 40 if self.most_recent_capsule_consumption > 0 else 100000
-        is_powered_up = turns_left > powerup_deadline
 
         if scared_ghosts:
             powerup_remaining_time = scared_ghosts[0].scared_timer
         else:
             powerup_remaining_time = turns_left - powerup_deadline if self.most_recent_capsule_consumption > 0 else 0
-
-        #for index, island in enumerate(get_food_islands(self.get_food_you_are_defending(game_state))):
-        #    increment = 1/len(get_food_islands(self.get_food_you_are_defending(game_state)))
-        #    self.debug_draw(island,color=(increment*index,.5,increment*index))
-
-        def all_pacman_on_team():
-            team_indices = self.get_team(game_state)
-            for index in team_indices:
-                if not game_state.get_agent_state(index).is_pacman:
-                    return False
-            return True
-        
-        def any_pacman_from_enemies():
-            for index in self.enemies:
-                if game_state.get_agent_state(index).is_pacman:
-                    return True
-            return False
-        
-        def closest_to_midline():
-            teammate_home_distance = self.getDistFromMiddle(teammate_idx, successor)
-            my_home_distance = self.getDistFromMiddle(self.index, successor)
-            if my_home_distance == teammate_home_distance:
-                return self.index == min(self.get_team(game_state))
-            return my_home_distance == min(my_home_distance,teammate_home_distance)
-
-        def closest_pacman(agent_idx):
-            closest = float("+inf")
-            for index, dist in enumerate(game_state.get_agent_distances()):
-                if game_state.get_agent_state(index).is_pacman and not index in self.get_team(game_state): ## agent is an enemy and is a pacman
-                    closest = min(closest,dist)
-            return closest
-        
-        def closest_to_pacman():
-            teammate_distance = self.get_maze_distance(game_state.get_agent_position(teammate_idx), invader_pos)
-            my_distance = self.get_maze_distance(curr_pos, invader_pos)
-            return my_distance == min(my_distance,teammate_distance)
-        
-        def get_buddy_distance():
-            teammate_pos = successor.get_agent_position(teammate_idx)
-            dist = self.get_maze_distance(succ_pos,teammate_pos)
-            return dist
-                
-        def should_i_defend():
-            if not game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
-                ## I am ghost and buddy -> me
-                return True
-            elif game_state.get_agent_state(self.index).is_pacman and not game_state.get_agent_state(teammate_idx).is_pacman:
-                ## I am pac and buddy is ghost
-                return False
-            elif game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
-                ##both pacman
-                return closest_to_pacman() if invader_pos else closest_to_midline()
-            else:
-                ## both ghost
-                if any_pacman_from_enemies():
-                    return closest_to_pacman() if invader_pos else closest_to_midline()
-                else:
-                    return not closest_to_pacman() if invader_pos else closest_to_midline()
-
-        def validate_position(position):
-            x,y = position
-
-            if not game_state.has_wall(int(x) , int(y)):
-                return (int(x),int(y))
-            
-            neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0),
-                         (1, 1), (-1, 1), (1, -1), (-1, -1)]
-            
-            for dx, dy in neighbors:
-                new_x, new_y = (int(x) + dx, int(y) + dy)
-                if not game_state.has_wall(new_x,new_y):
-                    return (new_x,new_y)
-
-
-        def get_capsule_middle_point():
-            curr_x = 0
-            curr_y = 0
-            for (x,y) in teamCapsules:
-                curr_x += x
-                curr_y += y
-            avg_x = curr_x / len(teamCapsules)
-            avg_y = curr_y / len(teamCapsules)
-            #self.debug_draw((avg_x,avg_y),color=(0.8,0.2,0.8))
-            return validate_position((avg_x,avg_y))
-
-        def get_your_half_center():
-            teamfoodList = CurrentTeamFood.as_list()
-            if len(teamfoodList) == 0:
-                return (int(self.x_mid + self.x_mid/2), int(self.height/2))
-            
-            curr_x = 0
-            curr_y = 0
-            for pos in CurrentTeamFood.as_list():
-                curr_x += pos[0]
-                curr_y += pos[1]
-            avg_x = curr_x/len(CurrentTeamFood.as_list())
-            avg_y = curr_y/len(CurrentTeamFood.as_list())
-            #self.debug_draw((avg_x,avg_y),color=(0.2,0.1,0.8))
-            return validate_position((avg_x,avg_y))
             
         no_dangerghosts = 5 if not non_scared_ghosts else 0
         retreat_threshold = 5 + enemy_scared_factor*0.2 + no_dangerghosts
-
+        
         retreat_mode = 1 if current_agent_state.num_carrying >= retreat_threshold else 0
-
-        double_attack = 1 if all_pacman_on_team() else 0
+        double_attack = 1 if self.all_pacman_on_team(game_state) else 0
 
         if powerup_remaining_time > 0:
             if powerup_remaining_time <= min_distance_cap:
@@ -1303,17 +1276,17 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             features["remaining_capsules"] = len(capsules_list)
             features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
             
-        
+
         features['distance_to_food'] = min_distance_food
         features["distance_to_largest_food_island"] = self.distance_from_island(self.get_largest_food_island(), succ_pos)
         features["closest_enemy_dist"] = closest_enemy_distance
         features["remaining_food"] = len(food_list)
         features["return_urgency"] = -self.getDistFromMiddle(self.index, successor)*retreat_mode
         features['successor_score'] = self.get_score(successor)
-        features["spread_tendency"] = get_buddy_distance()*double_attack
+        features["spread_tendency"] = self.get_maze_distance(succ_pos,teammate_position)*double_attack
         features['num_invaders'] = len(invaders)
-        features["capsule_middle_distance"] = self.get_maze_distance(get_capsule_middle_point(),succ_pos) if any_pacman_from_enemies() and len(teamCapsules) > 0 else 0
-        features["center_ownside_distance"] = self.get_maze_distance(get_your_half_center(),succ_pos) if self.active_profile == "defend" else 0
+        features["capsule_middle_distance"] = self.get_maze_distance(self.get_capsule_middle_point(teamCapsules, game_state),succ_pos) if self.any_pacman_from_enemies(game_state) and len(teamCapsules) > 0 else 0
+        features["center_ownside_distance"] = self.get_maze_distance(self.get_your_food_center(food_list, game_state),succ_pos) if self.active_profile == "defend" else 0
         features["dont_die"] = -999999 if succ_pos == self.start else 0
         features["anti_tweak"] = 1 if succ_pos in bad_positions else 0
 
@@ -1321,7 +1294,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts]
             features["ghost_distance"] = min(dists)
 
-        if any_pacman_from_enemies() and len(invaders) > 0:
+        if self.any_pacman_from_enemies(game_state) and len(invaders) > 0:
             closest_dist = float("+inf")
             for inv in invaders:
                 inv_pos = inv.get_position()
@@ -1330,7 +1303,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                     invader_pos = inv_pos
             features['invader_distance'] = closest_dist if invaders else 0
         
-        if any_pacman_from_enemies() and len(invaders) == 0:
+        if self.any_pacman_from_enemies(game_state) and len(invaders) == 0:
             dist = None
             if self.eaten_fooddot is not None:
                 dist = self.get_maze_distance(succ_pos, self.eaten_fooddot)
@@ -1355,7 +1328,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
 
         ## determine what profile will be used
-        if should_i_defend() and any_pacman_from_enemies():
+        if self.should_i_defend(game_state, teammate_idx, invader_pos, curr_pos, teammate_position, successor) and self.any_pacman_from_enemies(game_state):
             self.active_profile = "defend"
         else:
             self.active_profile = "attack"
@@ -1367,10 +1340,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         #    self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
         #else:
         #    print("no profile")
-            
-
-        #if len(teamCapsules) > 0:
-        #    self.debug_draw(avg_of_two_pos(get_capsule_middle_point(),get_your_half_center()),color=(1,1,1))
 
         return features
         
