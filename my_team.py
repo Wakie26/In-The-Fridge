@@ -750,8 +750,6 @@ class ApproximateFridgeAgent(CaptureAgent):
         #    print("no profile")
             
 
-        #if len(teamCapsules) > 0:
-        #    self.debug_draw(avg_of_two_pos(get_capsule_middle_point(),get_your_half_center()),color=(1,1,1))
 
         return features
 
@@ -875,14 +873,11 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         self.starting_food = self.get_food_you_are_defending(game_state)
         self.starting_food_amount = len(self.starting_food.as_list())
         self.starting_capsules = self.get_capsules(game_state)
-
-        self.active_profile = "attack" ## both agents start as attackers
+        self.active_profile = "attack"
 
         self.most_recent_capsule_consumption = 0
-
         self.clock = 0
         self.eaten_fooddot = None
-        
         self.enemies = self.get_opponents(game_state)
 
         def get_neighbor_walls(x,y):
@@ -967,21 +962,15 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
     def get_closest_enemy_distance(self, game_state):
             """
-            returns a tuple (x,y) of the closest enemy agent (with noise) 
+            returns the distance (int) to closest enemy agent (with noise)
             """
-            enemyDistances = []
             agentDistances =  game_state.get_agent_distances()
-            closestEnemyDist = float("+inf")
-            for index, x in enumerate(self.enemies):
-                enemyDistances.append(agentDistances[x])
-                if enemyDistances[index] < closestEnemyDist:
-                    closestEnemyDist = enemyDistances[index]
-
+            enemyDistances = [agentDistances[distance] for index, distance in enumerate(self.enemies)]
             return min(enemyDistances)
     
     def get_teammate_index(self, game_state):
             """
-            returns an integer: the index of your teammate
+            returns the index of your teammate (int)
             """    
             teammate_idx = None
             for index in self.get_team(game_state):
@@ -1014,23 +1003,29 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             return missing_food[0] if missing_food else None
 
     def get_prev_positions(self):
-            previous_positions = []
-            for observ in self.observation_history[-12: ]:
-                position = observ.get_agent_position(self.index)
-                previous_positions.append(position)
+            """
+            returns a list of the 12 most recent positions of the agent by looking at observation_history.
+            """
+            previous_positions = [observation.get_agent_position(self.index)for observation in self.observation_history[-12:]]
             return previous_positions
     
     def get_bad_positions(self, previous_positions):
+        """
+        returns a list of positions which occur 6 times or more in a given list of positions.
+        """
         uniquePositions = CountList(previous_positions).keys()
-        bad_positions = []
+        bad_positions = [position for position in uniquePositions.mapping if uniquePositions.mapping.get(position) >= 6]
             
-        for pos in uniquePositions.mapping:
-            count = uniquePositions.mapping.get(pos)
-            if count >= 6:
-                bad_positions.append(pos)
+        #for pos in uniquePositions.mapping:
+        #    count = uniquePositions.mapping.get(pos)
+        #    if count >= 6:
+        #        bad_positions.append(pos)
         return bad_positions
 
     def getDistFromMiddle(self, agent_idx, successor):
+            """
+            returns the smallest distance (int) to the midline for a given agent index and successor.
+            """
             dist = float("+inf")
             agent_pos = successor.get_agent_position(agent_idx)
             for pos in self.midline:
@@ -1038,6 +1033,11 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             return dist
 
     def get_neighbor_food(self, x,y, food_matrix):
+            """
+            Given a position, returns a tuple of lists: (foods , non_foods).
+                \n foods is a list of neighboring positions that contain a food dot
+                \n non_foods is a list of neighboring positions that do not contain a food dot
+            """
             neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0),
                          (1, 1), (-1, 1), (1, -1), (-1, -1)]
             foods = []
@@ -1051,6 +1051,10 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             return foods, non_foods
 
     def breadth_first_search_food(self, start, food_matrix):
+            """
+            A BFS variant specialized for finding islands of food.
+            \n returns a list of positions within the same island as `start`
+            """
             agenda = util.Queue()
             init_cell = start
             ## de agenda is een stack van nodes: eerste element is de state, tweede element is het pad tot nu toe
@@ -1074,6 +1078,10 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                         agenda.push([next_cell, current_path + [current_cell]])
 
     def get_food_islands(self, food_list, food_matrix):
+            """
+            returns a list of islands, which are in turn lists of positions of food dots.
+            \nIt does so by calling `breadth_first_search_food` for each food dot in `food_list`
+            """
             islands = []
             visited = set()
             
@@ -1086,16 +1094,17 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             return islands
 
     def get_largest_food_island(self):
-        largest_island = None
-        max_length = 0
-        for island in self.food_islands:
-            if len(island) > max_length:
-                max_length = len(island)
-                largest_island = island
-        return largest_island
+        """
+        returns the largest island in self.food_islands
+        """
+        return max(self.food_islands, key=len)
 
     def update_food_islands(self, curr_pos, food_list, food_matrix):
-            
+            """
+            Updates food islands only when needed to save computation. There are two cases:
+            \nThe position of the agent is the start position (game start or respawn)
+            \nThe largest food island has been completely eaten
+            """ 
             if curr_pos == self.start:
                 self.food_islands = self.get_food_islands(food_list, food_matrix)
                 return 
@@ -1111,6 +1120,9 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 self.food_islands = self.get_food_islands(food_list, food_matrix)
 
     def distance_from_island(self, island, succ_pos):
+            """
+            returns the distance (int) to the closest food dot from a given island
+            """
             min_distance = float("+inf")
             for pos in island:
                 min_distance = min(min_distance, self.get_maze_distance(succ_pos,pos))
@@ -1169,6 +1181,10 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                     return not self.closest_to_pacman(teammate_position, curr_pos, invader_pos) if invader_pos else self.closest_to_midline(teammate_idx, successor)
 
     def validate_position(self, position, game_state):
+            """
+            returns a non-wall position, given a position. If the given position does not contain a wall, then it is returned. 
+            \nOtherwise it will give the first found neighbor which is not occupied by a wall
+            """
             x,y = position
 
             if not game_state.has_wall(int(x) , int(y)):
@@ -1182,30 +1198,30 @@ class SmartFridgeAgent(ReflexCaptureAgent):
                 if not game_state.has_wall(new_x,new_y):
                     return (new_x,new_y)
 
-    def get_capsule_middle_point(self, teamCapsules, game_state):
+    def get_avg_position_from_list(self, position_list, game_state):
+            """
+            returns the average position of all positions in `position_list`
+            \nIf `position_list` is empty, then it returns the center of the of the teamside.
+            """
+            if not position_list:
+                return (int(self.x_mid + self.x_mid/2), int(self.height/2)) ## mistake here: hardcoded for blue side center...
             curr_x = 0
             curr_y = 0
-            for (x,y) in teamCapsules:
-                curr_x += x
-                curr_y += y
-            avg_x = curr_x / len(teamCapsules)
-            avg_y = curr_y / len(teamCapsules)
-            #self.debug_draw((avg_x,avg_y),color=(0.8,0.2,0.8))
-            return self.validate_position((avg_x,avg_y), game_state)
-
-    def get_your_food_center(self, food_list, game_state):
-            if len(food_list) == 0:
-                return (int(self.x_mid + self.x_mid/2), int(self.height/2))
-            
-            curr_x = 0
-            curr_y = 0
-            for pos in food_list:
+            for pos in position_list:
                 curr_x += pos[0]
                 curr_y += pos[1]
-            avg_x = curr_x/len(food_list)
-            avg_y = curr_y/len(food_list)
-            #self.debug_draw((avg_x,avg_y),color=(0.2,0.1,0.8))
+            avg_x = curr_x/len(position_list)
+            avg_y = curr_y/len(position_list)
             return self.validate_position((avg_x,avg_y), game_state)
+
+    def get_powerup_deadline(self, scared_ghosts, turns_left, powerup_deadline):
+            """
+            returns the estimated remaining turns (int) with scared ghosts.
+            """
+            if scared_ghosts:
+                return scared_ghosts[0].scared_timer
+            else:
+                return turns_left - powerup_deadline if self.most_recent_capsule_consumption > 0 else 0
 
     def get_features(self, game_state, action):
         features = util.Counter()
@@ -1254,11 +1270,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         
         self.check_for_capsule_consumption(capsules_list, time_left)
         powerup_deadline = self.most_recent_capsule_consumption - 40 if self.most_recent_capsule_consumption > 0 else 100000
-
-        if scared_ghosts:
-            powerup_remaining_time = scared_ghosts[0].scared_timer
-        else:
-            powerup_remaining_time = turns_left - powerup_deadline if self.most_recent_capsule_consumption > 0 else 0
+        powerup_remaining_time = self.get_powerup_deadline(scared_ghosts, turns_left, powerup_deadline)
             
         no_dangerghosts = 5 if not non_scared_ghosts else 0
         retreat_threshold = 5 + enemy_scared_factor*0.2 + no_dangerghosts
@@ -1285,14 +1297,17 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         features['successor_score'] = self.get_score(successor)
         features["spread_tendency"] = self.get_maze_distance(succ_pos,teammate_position)*double_attack
         features['num_invaders'] = len(invaders)
-        features["capsule_middle_distance"] = self.get_maze_distance(self.get_capsule_middle_point(teamCapsules, game_state),succ_pos) if self.any_pacman_from_enemies(game_state) and len(teamCapsules) > 0 else 0
-        features["center_ownside_distance"] = self.get_maze_distance(self.get_your_food_center(food_list, game_state),succ_pos) if self.active_profile == "defend" else 0
+        features["capsule_middle_distance"] = self.get_maze_distance(self.get_avg_position_from_list(teamCapsules, game_state),succ_pos) if self.any_pacman_from_enemies(game_state) and len(teamCapsules) > 0 else 0
+        features["center_ownside_distance"] = self.get_maze_distance(self.get_avg_position_from_list(food_list, game_state),succ_pos) if self.active_profile == "defend" else 0
         features["dont_die"] = -999999 if succ_pos == self.start else 0
         features["anti_tweak"] = 1 if succ_pos in bad_positions else 0
 
-        if non_scared_ghosts:
-            dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts]
-            features["ghost_distance"] = min(dists)
+        non_scared_distances = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts] if non_scared_ghosts else [0]
+        features["ghost_distance"] = min(non_scared_distances)
+
+        #if non_scared_ghosts:
+        #    dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts]
+        #    features["ghost_distance"] = min(dists)
 
         if self.any_pacman_from_enemies(game_state) and len(invaders) > 0:
             closest_dist = float("+inf")
@@ -1321,25 +1336,14 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
         for dead_path in self.dead_paths:
             if succ_pos in dead_path and succes_agent_state.is_pacman:
-                #print(dead_path)
-                #print(features["ghost_distance"],len(dead_path))
                 if non_scared_ghosts and features["ghost_distance"] <= 2*len(dead_path) + 1:
                     features["no_dead_end"] = -99999999
-
 
         ## determine what profile will be used
         if self.should_i_defend(game_state, teammate_idx, invader_pos, curr_pos, teammate_position, successor) and self.any_pacman_from_enemies(game_state):
             self.active_profile = "defend"
         else:
             self.active_profile = "attack"
-
-        
-        #if self.active_profile == "defend":
-        #    self.debug_draw(curr_pos,color=(0.8,0.3,0.3))
-        #elif self.active_profile == "attack":
-        #    self.debug_draw(curr_pos,color=(0.3,0.8,0.3))
-        #else:
-        #    print("no profile")
 
         return features
         
