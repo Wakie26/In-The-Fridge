@@ -865,100 +865,125 @@ class ApproximateFridgeAgent(CaptureAgent):
 
 class SmartFridgeAgent(ReflexCaptureAgent):
 
-    def register_initial_state(self, game_state):
-        self.start = game_state.get_agent_position(self.index)
-        CaptureAgent.register_initial_state(self, game_state)
-        self.distancer.get_maze_distances()
-
-        self.starting_food = self.get_food_you_are_defending(game_state)
-        self.starting_food_amount = len(self.starting_food.as_list())
-        self.starting_capsules = self.get_capsules(game_state)
-        self.active_profile = "attack"
-
-        self.most_recent_capsule_consumption = 0
-        self.clock = 0
-        self.eaten_fooddot = None
-        self.enemies = self.get_opponents(game_state)
-
-        def get_neighbor_walls(x,y):
-            neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
-            walls = []
-            non_walls = []
-            for dx, dy in neighbors:
-                neighbor = game_state.data.layout.walls[x+dx][y+dy]
+    # functions for creating features
+    def get_neighbor_data(self, x, y, data_matrix, neighbor_selection):
+            """
+            Given a position and a matrix, returns a tuple of lists: (true_data, false_data).
+                \n true_data is a list of neighboring positions that return true in the matrix
+                \n false_data is a list of neighboring positions that return false in the matrix
+                \n This is an "abstract method" for `get_neighbor_walls` and `get_neighbor_food`. 
+            """
+            true_data = []
+            false_data = []
+            for dx, dy in neighbor_selection:
+                neighbor = data_matrix[x+dx][y+dy]
                 if neighbor:
-                    walls.append((x+dx, y+dy))
+                    true_data.append((x+dx, y+dy))
                 else:
-                    non_walls.append((x+dx, y+dy))
-            return walls, non_walls
+                    false_data.append((x+dx, y+dy))
+            return true_data, false_data
+
+    def get_neighbor_walls(self,x,y):
+            """
+            returns a tuple of lists: (walls, non_walls)
+            \n walls is a list of positions that contain a wall
+            \n non_walls is a list of positions that do not contain a wall
+            """
+            neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+            return self.get_neighbor_data(x,y,self.walls,neighbors)
             
-        def get_dead_ends():
-                """
-                    returns a list of ((x,y), empty_neighbor) of all dead end cells
-                """
-                walls = game_state.get_walls()
-                wall_list = walls.as_list()
-                neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
-                dead_ends = []
-                for x in range(walls.width):
-                    for y in range(walls.height):
-                        if not game_state.data.layout.walls[x][y]:
-                            wall_neighbors, empty_neighbors = get_neighbor_walls(x,y)
-                            if len(wall_neighbors) == 3:
-                                ## this is a dead end cell
-                                dead_ends.append(((x,y), empty_neighbors[0]))
-                                #self.debug_draw((x,y),color=(.4,.6,.2))
-                return dead_ends
-
-        def breadth_first_search(start, stopcondition):
-            agenda = util.Queue()
-            init_cell = start
-            ## de agenda is een stack van nodes: eerste element is de state, tweede element is het pad tot nu toe
-            agenda.push([init_cell,[]])
-            Visited = set([init_cell])
-
-            while True:
-                if agenda.is_empty():
-                    return []
-
-                current_state = agenda.pop()
-                current_path = current_state[1]
-                current_cell = current_state[0]
-
-                walls, non_walls = get_neighbor_walls(current_cell[0],current_cell[1])
-                
-                if stopcondition(walls):
-                    #self.debug_draw(prev_cell,color=(0.9,0.2,0.2))
-                    return current_path
-
-                for next_cell in non_walls:
-                    if next_cell not in Visited:
-                        Visited.add(next_cell)
-                        #self.debug_draw(current_cell,color=(0.5,0.8,0.3))
-                        agenda.push([next_cell, current_path + [current_cell]])
-
-        def get_all_dead_paths():    
-            dead_paths = []
-
-            def stopcondition(walls):
-                return len(walls) < 2
-            
-            for dead_end, start in get_dead_ends():
-                dead_list = breadth_first_search(start,stopcondition)
-                dead_paths.append([dead_end] + dead_list)
-            return dead_paths
-    
+    def get_dead_ends(self, game_state):
+        """
+        returns a list of ((x,y), empty_neighbor) of all dead end cells. A dead end cell is defined as any cell with exactly 3 neighboring walls.
+        """
         walls = game_state.get_walls()
-        self.width = walls.width
-        self.height = walls.height
-        self.x_mid = int(self.width/2) if not self.red else int(self.width/2) - 1
+        dead_ends = []
 
-        self.midline = []
-        for y in range(0,self.height):
-            if not game_state.has_wall(self.x_mid,y):
-                self.midline.append((self.x_mid,y))
+        for x in range(walls.width):
+            for y in range(walls.height):
 
-        self.dead_paths = get_all_dead_paths()
+                if game_state.data.layout.walls[x][y]:
+                    continue
+                
+                wall_neighbors, empty_neighbors = self.get_neighbor_walls(x,y)
+                if len(wall_neighbors) == 3:
+                    dead_ends.append(((x,y), empty_neighbors[0]))
+                    #self.debug_draw((x,y),color=(.4,.6,.2))
+
+            return dead_ends
+
+    def breadth_first_search(self,start, stopcondition, data_matrix, neighbor_selection, return_visited, expand_into_true):
+        """
+        A generalized BFS algorithm to used by `BFS_food` and `BFS_walls`.
+        \n `start`: the starting position for the BFS search.
+        \n `Stopcondition`: a callable function that should return True or False. Determines when to stop early.
+        \n `data_matrix`: matrix of bools in which the BFS algorithm will search
+        \n `neighbor_selection`: list of tuples (x,y) that are used for calculating neighboring positions.
+        \n `return_visited`: Boolean that determines if the Visisted list will be returned if the agenda is empty.
+        \n `expand_into_true`: Boolean that detemines wether the BFS algorithm will expand into True values or False values
+        """
+        agenda = util.Queue()
+        init_cell = start
+        agenda.push([init_cell,[]])
+        Visited = set([init_cell])
+
+        while True:
+            if agenda.is_empty():
+                return Visited if return_visited else []
+
+            current_state = agenda.pop()
+            current_path = current_state[1]
+            current_cell = current_state[0]
+
+            true_list, false_list = self.get_neighbor_data(current_cell[0],current_cell[1], data_matrix, neighbor_selection)
+            expand_list = true_list if expand_into_true else false_list
+
+            if stopcondition(true_list):
+                #self.debug_draw(current_cell,color=(0.9,0.2,0.2))
+                return current_path
+
+            for next_cell in expand_list:
+                if next_cell not in Visited:
+                    Visited.add(next_cell)
+                    #self.debug_draw(current_cell,color=(0.5,0.8,0.3))
+                    agenda.push([next_cell, current_path + [current_cell]])
+
+    def BFS_walls(self,start):
+
+        def stopcondition(walls):
+            return len(walls) < 2
+
+        neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+        
+        return self.breadth_first_search(start, stopcondition, self.walls, neighbors, False, False)
+
+    def BFS_food(self, start, food_matrix):
+            """
+            A BFS variant specialized for finding islands of food.
+            \n returns a list of positions within the same island as `start`
+            """
+            neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0),
+                         (1, 1), (-1, 1), (1, -1), (-1, -1)]
+            
+            def stopcondition(list):
+                return False
+            
+            return self.breadth_first_search(start, stopcondition=stopcondition,
+                                              data_matrix=food_matrix,
+                                              neighbor_selection=neighbors,
+                                              return_visited=True,
+                                              expand_into_true=True)
+
+    def get_all_dead_paths(self, game_state):
+        """
+        returns a list of all paths resulting in a dead end, which are in turn lists of positions.
+        This function is expensive and should only be called once at the beginning of each game.
+        """
+        dead_paths = []    
+        for dead_end, start in self.get_dead_ends(game_state):
+            dead_list = self.breadth_first_search(start)
+            dead_paths.append([dead_end] + dead_list)
+        return dead_paths
 
     def get_closest_enemy_distance(self, game_state):
             """
@@ -970,7 +995,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
     
     def get_teammate_index(self, game_state):
             """
-            returns the index of your teammate (int)
+            returns the index of your teammate (int). Should only need to be called only once at the beginning of each game.
             """    
             teammate_idx = None
             for index in self.get_team(game_state):
@@ -1004,7 +1029,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
     def get_prev_positions(self):
             """
-            returns a list of the 12 most recent positions of the agent by looking at observation_history.
+            returns a list of the 12 most recent positions of the agent by looking at self.observation_history.
             """
             previous_positions = [observation.get_agent_position(self.index)for observation in self.observation_history[-12:]]
             return previous_positions
@@ -1034,48 +1059,13 @@ class SmartFridgeAgent(ReflexCaptureAgent):
 
     def get_neighbor_food(self, x,y, food_matrix):
             """
-            Given a position, returns a tuple of lists: (foods , non_foods).
-                \n foods is a list of neighboring positions that contain a food dot
-                \n non_foods is a list of neighboring positions that do not contain a food dot
+            returns a tuple of lists: (foods, non_foods)
+            \n foods is a list of positions that contain a food dot
+            \n non_foods is a list of positions that do not contain a food dot
             """
             neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0),
                          (1, 1), (-1, 1), (1, -1), (-1, -1)]
-            foods = []
-            non_foods = []
-            for dx, dy in neighbors:
-                neighbor = food_matrix[x+dx][y+dy]
-                if neighbor:
-                    foods.append((x+dx, y+dy))
-                else:
-                    non_foods.append((x+dx, y+dy))
-            return foods, non_foods
-
-    def breadth_first_search_food(self, start, food_matrix):
-            """
-            A BFS variant specialized for finding islands of food.
-            \n returns a list of positions within the same island as `start`
-            """
-            agenda = util.Queue()
-            init_cell = start
-            ## de agenda is een stack van nodes: eerste element is de state, tweede element is het pad tot nu toe
-            agenda.push([init_cell,[init_cell]])
-            Visited = set()
-            Visited.add(init_cell)
-
-            while True:
-                if agenda.is_empty():
-                    return Visited
-
-                current_state = agenda.pop()
-                current_path = current_state[1]
-                current_cell = current_state[0]
-
-                foods, non_foods = self.get_neighbor_food(current_cell[0],current_cell[1], food_matrix)
-
-                for next_cell in foods:
-                    if next_cell not in Visited:
-                        Visited.add(next_cell)
-                        agenda.push([next_cell, current_path + [current_cell]])
+            return self.get_neighbor_data(x,y,food_matrix,neighbors)
 
     def get_food_islands(self, food_list, food_matrix):
             """
@@ -1088,7 +1078,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             for food in food_list:
                 if not food in visited:
                     visited.add(food)
-                    island = self.breadth_first_search_food(food, food_matrix)
+                    island = self.BFS_food(food,food_matrix)
                     islands.append(island)
 
             return islands
@@ -1137,49 +1127,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             if missing_capusles:
                 self.most_recent_capsule_consumption = time_left
 
-    ## predicates
-    def all_pacman_on_team(self, game_state):
-        team_indices = self.get_team(game_state)
-        for index in team_indices:
-            if not game_state.get_agent_state(index).is_pacman:
-                return False
-        return True
-        
-    def any_pacman_from_enemies(self, game_state):
-        for index in self.enemies:
-            if game_state.get_agent_state(index).is_pacman:
-                return True
-        return False
-
-    def closest_to_midline(self, teammate_idx, successor):
-            teammate_home_distance = self.getDistFromMiddle(teammate_idx, successor)
-            my_home_distance = self.getDistFromMiddle(self.index, successor)
-            if my_home_distance == teammate_home_distance:
-                return self.index == min(self.get_team(successor))
-            return my_home_distance == min(my_home_distance,teammate_home_distance)
-
-    def closest_to_pacman(self, teammate_pos, curr_pos, invader_pos):
-            teammate_distance = self.get_maze_distance(teammate_pos, invader_pos)
-            my_distance = self.get_maze_distance(curr_pos, invader_pos)
-            return my_distance == min(my_distance,teammate_distance)
-
-    def should_i_defend(self, game_state, teammate_idx, invader_pos, curr_pos, teammate_position, successor):
-            if not game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
-                ## I am ghost and buddy is pacman -> me
-                return True
-            elif game_state.get_agent_state(self.index).is_pacman and not game_state.get_agent_state(teammate_idx).is_pacman:
-                ## I am pac and buddy is ghost
-                return False
-            elif game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
-                ##both pacman
-                return self.closest_to_pacman(teammate_position, curr_pos, invader_pos) if invader_pos else self.closest_to_midline(teammate_idx, successor)
-            else:
-                ## both ghost
-                if self.any_pacman_from_enemies(game_state):
-                    return self.closest_to_pacman(teammate_position, curr_pos, invader_pos) if invader_pos else self.closest_to_midline(teammate_idx, successor)
-                else:
-                    return not self.closest_to_pacman(teammate_position, curr_pos, invader_pos) if invader_pos else self.closest_to_midline(teammate_idx, successor)
-
     def validate_position(self, position, game_state):
             """
             returns a non-wall position, given a position. If the given position does not contain a wall, then it is returned. 
@@ -1223,6 +1170,80 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             else:
                 return turns_left - powerup_deadline if self.most_recent_capsule_consumption > 0 else 0
 
+    def get_midline(self, game_state):
+        self.midline = []
+        for y in range(0,self.height):
+            if not game_state.has_wall(self.x_mid,y):
+                self.midline.append((self.x_mid,y))
+
+    ## predicates for decision making
+    def all_pacman_on_team(self, game_state):
+        team_indices = self.get_team(game_state)
+        for index in team_indices:
+            if not game_state.get_agent_state(index).is_pacman:
+                return False
+        return True
+        
+    def any_pacman_from_enemies(self, game_state):
+        for index in self.enemies:
+            if game_state.get_agent_state(index).is_pacman:
+                return True
+        return False
+
+    def closest_to_midline(self, teammate_idx, successor):
+            teammate_home_distance = self.getDistFromMiddle(teammate_idx, successor)
+            my_home_distance = self.getDistFromMiddle(self.index, successor)
+            if my_home_distance == teammate_home_distance:
+                return self.index == min(self.get_team(successor))
+            return my_home_distance == min(my_home_distance,teammate_home_distance)
+
+    def closest_to_pacman(self, teammate_pos, curr_pos, invader_pos):
+            teammate_distance = self.get_maze_distance(teammate_pos, invader_pos)
+            my_distance = self.get_maze_distance(curr_pos, invader_pos)
+            return my_distance == min(my_distance,teammate_distance)
+
+    def should_i_defend(self, game_state, teammate_idx, invader_pos, curr_pos, teammate_position, successor):
+            if not game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
+                ## I am ghost and buddy is pacman -> me
+                return True
+            elif game_state.get_agent_state(self.index).is_pacman and not game_state.get_agent_state(teammate_idx).is_pacman:
+                ## I am pac and buddy is ghost
+                return False
+            elif game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
+                ##both pacman
+                return self.closest_to_pacman(teammate_position, curr_pos, invader_pos) if invader_pos else self.closest_to_midline(teammate_idx, successor)
+            else:
+                ## both ghost
+                if self.any_pacman_from_enemies(game_state):
+                    return self.closest_to_pacman(teammate_position, curr_pos, invader_pos) if invader_pos else self.closest_to_midline(teammate_idx, successor)
+                else:
+                    return not self.closest_to_pacman(teammate_position, curr_pos, invader_pos) if invader_pos else self.closest_to_midline(teammate_idx, successor)
+
+    ## overridden methods
+    def register_initial_state(self, game_state):
+        self.start = game_state.get_agent_position(self.index)
+        CaptureAgent.register_initial_state(self, game_state)
+        self.distancer.get_maze_distances()
+
+        self.starting_food = self.get_food_you_are_defending(game_state)
+        self.starting_food_amount = len(self.starting_food.as_list())
+        self.starting_capsules = self.get_capsules(game_state)
+        self.active_profile = "attack"
+
+        self.most_recent_capsule_consumption = 0
+        self.clock = 0
+        self.eaten_fooddot = None
+        self.enemies = self.get_opponents(game_state)
+
+        self.walls = game_state.get_walls()
+        self.width = self.walls.width
+        self.height = self.walls.height
+        self.x_mid = int(self.width/2) if not self.red else int(self.width/2) - 1
+        
+        self.get_midline(game_state)
+
+        self.dead_paths = self.get_all_dead_paths(game_state)
+
     def get_features(self, game_state, action):
         features = util.Counter()
         self.debug_clear()
@@ -1249,6 +1270,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         ghosts = [a for a in enemy_states if not a.is_pacman and a.get_position() is not None]
         scared_ghosts = [enemy for enemy in enemy_states if not enemy.is_pacman and enemy.scared_timer > 0]
         non_scared_ghosts = [a for a in ghosts if a.scared_timer == 0]
+        non_scared_distances = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts] if non_scared_ghosts else [0]
         teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
         CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
         
@@ -1301,8 +1323,6 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         features["center_ownside_distance"] = self.get_maze_distance(self.get_avg_position_from_list(food_list, game_state),succ_pos) if self.active_profile == "defend" else 0
         features["dont_die"] = -999999 if succ_pos == self.start else 0
         features["anti_tweak"] = 1 if succ_pos in bad_positions else 0
-
-        non_scared_distances = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts] if non_scared_ghosts else [0]
         features["ghost_distance"] = min(non_scared_distances)
 
         #if non_scared_ghosts:
