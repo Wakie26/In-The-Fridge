@@ -514,8 +514,12 @@ def check_for_capsule_consumption(agent, capsules_list, time_left):
     """
     Updates agent.most_recent_capsule_consumption if a capsule has been eaten
     """
+    missing_capusles = []
     prev_observation = agent.get_previous_observation()
-    missing_capusles = [element for element in agent.get_capsules(prev_observation) if element not in capsules_list] if prev_observation else []
+    if prev_observation is not None:
+        Prevcaps = agent.get_capsules(prev_observation)
+        missing_capusles = [element for element in Prevcaps if element not in capsules_list]
+
     if missing_capusles:
         agent.most_recent_capsule_consumption = time_left
 
