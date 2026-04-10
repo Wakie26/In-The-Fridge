@@ -471,8 +471,6 @@ def get_food_islands(agent, food_list, food_matrix):
             visited.add(food)
             island = BFS_food(food,food_matrix)
             islands.append(island)
-            for found_food in island:
-                visited.add(found_food)
     return islands
 
 def get_largest_food_island(agent):
@@ -488,18 +486,22 @@ def update_food_islands(agent, curr_pos, food_list, food_matrix):
     \nThe largest food island has been completely eaten
     """ 
     if curr_pos == agent.start:
-        agent.food_islands = get_food_islands(agent,food_list, food_matrix)
-        return 
+        agent.food_islands = get_food_islands(agent,food_list,food_matrix)
 
-    largest_island = get_largest_food_island(agent)
+    agent.largest_island = None
+    max_length = 0
+    for island in agent.food_islands:
+        if len(island) > max_length:
+            max_length = len(island)
+            agent.largest_island = island
 
     largest_still_exists = False
-    for pos in largest_island:
+    for pos in agent.largest_island:
         if food_matrix[pos[0]][pos[1]]:
             largest_still_exists = True
-
+    
     if not largest_still_exists:
-        agent.food_islands = get_food_islands(agent,food_list, food_matrix)
+        agent.food_islands = get_food_islands(agent,food_list,food_matrix) ## recalc if largest food island has been eaten
 
 def distance_from_island(agent, island, succ_pos):
     """
@@ -797,7 +799,7 @@ class ApproximateFridgeAgent(CaptureAgent):
             
 
         features['distance_to_food'] = min_distance_food
-        features["distance_to_largest_food_island"] = distance_from_island(self, get_largest_food_island(self), succ_pos)
+        features["distance_to_largest_food_island"] = distance_from_island(self, self.largest_island, succ_pos)
         features["closest_enemy_dist"] = closest_enemy_distance
         features["remaining_food"] = len(food_list)
         features["return_urgency"] = -getDistFromMiddle(self, self.index, successor)*retreat_mode
@@ -1032,7 +1034,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
             
 
         features['distance_to_food'] = min_distance_food
-        features["distance_to_largest_food_island"] = distance_from_island(self, get_largest_food_island(self), succ_pos)
+        features["distance_to_largest_food_island"] = distance_from_island(self, self.largest_island, succ_pos)
         features["closest_enemy_dist"] = closest_enemy_distance
         features["remaining_food"] = len(food_list)
         features["return_urgency"] = -getDistFromMiddle(self, self.index, successor)*retreat_mode
