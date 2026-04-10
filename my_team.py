@@ -400,9 +400,19 @@ def get_closest_enemy_distance(agent, game_state):
     """
     returns the distance (int) to closest enemy agent (with noise)
     """
-    agentDistances =  game_state.get_agent_distances()
-    enemyDistances = [agentDistances[distance] for index, distance in enumerate(agent.enemies)]
-    return min(enemyDistances)
+    enemyDistances = []
+    enemyStates = []
+    closestEnemyDist = float("+inf")
+
+    ## gathering smallest distance from enemies and also the index of the closest enemy
+    for index, x in enumerate(enemiesList):
+        enemyDistances.append(agentDistances[x])
+        enemyStates.append(game_state.get_agent_state(x))
+
+        if enemyDistances[index] < closestEnemyDist:
+            closestEnemyDist = enemyDistances[index]
+
+    closestEnemyDist = min(enemyDistances)
 
 def get_teammate_index(agent, game_state):
     """
