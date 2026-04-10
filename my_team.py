@@ -709,327 +709,96 @@ class ApproximateFridgeAgent(CaptureAgent):
 
     def get_features(self, game_state, action):
         features = util.Counter()
-        self.debug_clear()
+        #self.debug_clear()
 
-        ## general information
-        previous_positions = get_prev_positions(self)
-        bad_positions = get_bad_positions(previous_positions)
-
-        previous_positions = []
-        for observ in self.observation_history[-12: ]:
-            position = observ.get_agent_position(self.index)
-            previous_positions.append(position)
-
-        uniquePositions = CountList(previous_positions).keys()
-        uniqueCount = CountList(previous_positions).values()
-        bad_positions = []
-        #print(uniquePositions.mapping.get())
-
-        for pos in uniquePositions.mapping:
-            count = uniquePositions.mapping.get(pos)
-            if count >= 6:
-                bad_positions.append(pos)
-
+        ## variables
         successor = self.get_successor(game_state, action)
         current_agent_state = game_state.data.agent_states[self.index]
         succes_agent_state = successor.data.agent_states[self.index]
-        time_left = game_state.data.timeleft
-        turns_left = int(time_left/4)
-
-        scared_timer = succes_agent_state.scared_timer
-        is_scared = scared_timer > 0
-
-        agentDistances =  successor.get_agent_distances()
         curr_pos = current_agent_state.get_position()
         succ_pos = succes_agent_state.get_position()
 
-        def getDistFromMiddle(agent_idx):
-            dist = float("+inf")
-            agent_pos = successor.get_agent_position(agent_idx)
-            for pos in self.midline:
-                dist = min(dist,self.get_maze_distance(pos,agent_pos))
-            return dist
+        time_left = game_state.data.timeleft
+        turns_left = int(time_left/4)
+        scared_timer = succes_agent_state.scared_timer
+        is_scared = scared_timer > 0
 
-        ## info about enemies
-        enemiesList = self.get_opponents(successor)
-        enemyDistances = []
-        enemyStates = []
-        closestEnemyDist = float("+inf")
+        closest_enemy_distance = get_closest_enemy_distance(self,successor)
 
-        enemies = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
-
-        enemy_scared_timers = [enemy.scared_timer for enemy in enemies]
-
+        enemy_states = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
+        enemy_scared_timers = [enemy.scared_timer for enemy in enemy_states]
         enemy_scared_factor = sum(enemy_scared_timers)/len(enemy_scared_timers)
 
-        invaders = [a for a in enemies if a.is_pacman and a.get_position() is not None]
-        ghosts = [a for a in enemies if not a.is_pacman and a.get_position() is not None]
-        scared_ghosts = [enemy for enemy in enemies if not enemy.is_pacman and enemy.scared_timer > 0]
+        invaders = [a for a in enemy_states if a.is_pacman and a.get_position() is not None]
+        ghosts = [a for a in enemy_states if not a.is_pacman and a.get_position() is not None]
+        scared_ghosts = [enemy for enemy in enemy_states if not enemy.is_pacman and enemy.scared_timer > 0]
         non_scared_ghosts = [a for a in ghosts if a.scared_timer == 0]
-
-        ## gathering smallest distance from enemies and also the index of the closest enemy
-        for index, x in enumerate(enemiesList):
-            enemyDistances.append(agentDistances[x])
-            enemyStates.append(game_state.get_agent_state(x))
-
-            if enemyDistances[index] < closestEnemyDist:
-                closestEnemyDist = enemyDistances[index]
-
-        closestEnemyDist = min(enemyDistances)
-        
-
-        ## info about our side
+        non_scared_distances = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts] if non_scared_ghosts else [0]
         teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
         CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
-        teammate_idx = None
-        for index in self.get_team(game_state):
-            if index != self.index:
-                teammate_idx = index
-
-        ## if a fooddot disappears on our side, we know an enemy pacman is at that location
-
-        missing_food = []
-        prev_observation = self.get_previous_observation()
-        if prev_observation is not None:
-            PrevTeamFood = self.get_food_you_are_defending(prev_observation)
-            missing_food = [element for element in PrevTeamFood.as_list() if element not in CurrentTeamFood.as_list()]
         
-        missing_food_updated = False
-        if len(missing_food) > 0:
-            missing_food_updated = True
+        teammate_idx = get_teammate_index(self,game_state)
+        teammate_position = game_state.get_agent_position(teammate_idx)
+                
+        invader_pos = get_missing_food(self,CurrentTeamFood)
 
-        if missing_food_updated:
-            self.eaten_fooddot = missing_food[0]
-            self.clock = 1
-        if not missing_food_updated:
-            self.clock += 1
-        if self.clock > 30:
-            self.eaten_fooddot = None
+        previous_positions = get_prev_positions(self)
+        bad_positions = get_bad_positions(previous_positions)
 
-        
-        ## computed heuristics
-        food_list = self.get_food(successor).as_list()
+        food_matrix = self.get_food(successor)
+        food_list = food_matrix.as_list()
         min_distance_food = min([self.get_maze_distance(succ_pos, food) for food in food_list])
+        update_food_islands(self, curr_pos, food_list, food_matrix)
 
         capsules_list = self.get_capsules(successor)
         min_distance_cap = min([self.get_maze_distance(succ_pos, cap) for cap in capsules_list]) if len(capsules_list) > 0 else 0
-
-        if min_distance_cap == 1 and len(capsules_list) > 0:
-            self.most_recent_capsule_consumption = turns_left
-            
+        
+        check_for_capsule_consumption(self,capsules_list, time_left)
         powerup_deadline = self.most_recent_capsule_consumption - 40 if self.most_recent_capsule_consumption > 0 else 100000
-        is_powered_up = turns_left > powerup_deadline
-        powerup_remaining_time = turns_left - powerup_deadline if self.most_recent_capsule_consumption > 0 else 0
-
-        def get_food_islands(food_positions):
-            food_positions = food_positions.as_list()
-            islands = []
-            visited = set()
-            neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0),
-                         (1, 1), (-1, 1), (1, -1), (-1, -1)]
+        powerup_remaining_time = get_powerup_deadline(self,scared_ghosts, turns_left, powerup_deadline)
             
-            for food in food_positions:
-                if not food in visited:
-                    island = breadth_first_search(food)
-
-            return islands
-
-
-        #for index, island in enumerate(get_food_islands(self.get_food_you_are_defending(game_state))):
-        #    increment = 1/len(get_food_islands(self.get_food_you_are_defending(game_state)))
-        #    self.debug_draw(island,color=(increment*index,.5,increment*index))
-                
-
-
-        def all_pacman_on_team():
-            team_indices = self.get_team(game_state)
-            for index in team_indices:
-                if not game_state.get_agent_state(index).is_pacman:
-                    return False
-            return True
+        no_dangerghosts = 5 if not non_scared_ghosts else 0
+        retreat_threshold = 5 + enemy_scared_factor*0.2 + no_dangerghosts
         
-        def any_pacman_from_enemies():
-            for index in enemiesList:
-                if game_state.get_agent_state(index).is_pacman:
-                    return True
-            return False
-        
-        def closest_to_midline():
-            teammate_home_distance = getDistFromMiddle(teammate_idx)
-            my_home_distance = getDistFromMiddle(self.index)
-            if my_home_distance == teammate_home_distance:
-                return self.index == min(self.get_team(game_state))
-            return my_home_distance == min(my_home_distance,teammate_home_distance)
-                
-        def get_buddy_distance():
-            teammate_pos = successor.get_agent_position(teammate_idx)
-            dist = self.get_maze_distance(succ_pos,teammate_pos)
-            return dist
-                
-        def should_i_defend():
-            if not game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
-                ## I am ghost and buddy -> me
-                return True
-            elif game_state.get_agent_state(self.index).is_pacman and not game_state.get_agent_state(teammate_idx).is_pacman:
-                ## I am pac and buddy is ghost
-                return False
-            elif game_state.get_agent_state(self.index).is_pacman and game_state.get_agent_state(teammate_idx).is_pacman:
-                ##both pacman
-                return closest_to_midline()
+        retreat_mode = 1 if current_agent_state.num_carrying >= retreat_threshold else 0
+        double_attack = 1 if all_pacman_on_team(self, game_state) else 0
+
+        if powerup_remaining_time > 0:
+            if powerup_remaining_time <= min_distance_cap:
+                features['distance_to_capsule'] = min_distance_cap
             else:
-                ## both ghost
-                if any_pacman_from_enemies():
-                    return not closest_to_midline()
-                else:
-                    return closest_to_midline()
-
-        def get_capsule_middle_point():
-            curr_x = 0
-            curr_y = 0
-            for (x,y) in teamCapsules:
-                curr_x += x
-                curr_y += y
-            avg_x = curr_x / len(teamCapsules)
-            avg_y = curr_y / len(teamCapsules)
-            #self.debug_draw((avg_x,avg_y),color=(0.8,0.2,0.8))
-            if game_state.has_wall(int(avg_x) , int(avg_y)):
-                if not game_state.has_wall(int(avg_x) + 1 , int(avg_y)):
-                    return (int(avg_x) + 1 , int(avg_y))
-                elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) + 1):
-                    return (int(avg_x) + 1 , int(avg_y) + 1)
-                elif not game_state.has_wall(int(avg_x) , int(avg_y) +1 ):
-                    return (int(avg_x) , int(avg_y) +1 )
-                elif not game_state.has_wall(int(avg_x) -1 , int(avg_y) + 1):
-                    return (int(avg_x) - 1 , int(avg_y + 1))
-                elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y)):
-                    return (int(avg_x) - 1 , int(avg_y))
-                elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y) - 1):
-                    return (int(avg_x) - 1 , int(avg_y) - 1)
-                elif not game_state.has_wall(int(avg_x) , int(avg_y) - 1):
-                    return (int(avg_x) , int(avg_y) - 1)
-                elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) - 1):
-                    return (int(avg_x) + 1 , int(avg_y) - 1)
-                
+                features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
+            features["remaining_capsules"] = -len(capsules_list)
+        else:
+            features["remaining_capsules"] = len(capsules_list)
+            features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
             
-            return (int(avg_x) , int(avg_y))
-
-        def get_your_half_center():
-            teamfoodList = CurrentTeamFood.as_list()
-
-            if len(teamfoodList) == 0:
-                avg_x = self.x_mid + self.x_mid/2
-                avg_y = self.height/2
-                if game_state.has_wall(int(avg_x) , int(avg_y)):
-                    if not game_state.has_wall(int(avg_x) + 1 , int(avg_y)):
-                        return (int(avg_x) + 1 , int(avg_y))
-                    elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) + 1):
-                        return (int(avg_x) + 1 , int(avg_y) + 1)
-                    elif not game_state.has_wall(int(avg_x) , int(avg_y) +1 ):
-                        return (int(avg_x) , int(avg_y) +1 )
-                    elif not game_state.has_wall(int(avg_x) -1 , int(avg_y) + 1):
-                        return (int(avg_x) - 1 , int(avg_y + 1))
-                    elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y)):
-                        return (int(avg_x) - 1 , int(avg_y))
-                    elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y) - 1):
-                        return (int(avg_x) - 1 , int(avg_y) - 1)
-                    elif not game_state.has_wall(int(avg_x) , int(avg_y) - 1):
-                        return (int(avg_x) , int(avg_y) - 1)
-                    elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) - 1):
-                        return (int(avg_x) + 1 , int(avg_y) - 1)
-                return (int(avg_x) , int(avg_y))
-            
-            curr_x = 0
-            curr_y = 0
-            for pos in CurrentTeamFood.as_list():
-                curr_x += pos[0]
-                curr_y += pos[1]
-            avg_x = curr_x/len(CurrentTeamFood.as_list())
-            avg_y = curr_y/len(CurrentTeamFood.as_list())
-            #self.debug_draw((avg_x,avg_y),color=(0.2,0.1,0.8))
-            if game_state.has_wall(int(avg_x) , int(avg_y)):
-                if not game_state.has_wall(int(avg_x) + 1 , int(avg_y)):
-                    return (int(avg_x) + 1 , int(avg_y))
-                elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) + 1):
-                    return (int(avg_x) + 1 , int(avg_y) + 1)
-                elif not game_state.has_wall(int(avg_x) , int(avg_y) +1 ):
-                    return (int(avg_x) , int(avg_y) +1 )
-                elif not game_state.has_wall(int(avg_x) -1 , int(avg_y) + 1):
-                    return (int(avg_x) - 1 , int(avg_y + 1))
-                elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y)):
-                    return (int(avg_x) - 1 , int(avg_y))
-                elif not game_state.has_wall(int(avg_x) - 1 , int(avg_y) - 1):
-                    return (int(avg_x) - 1 , int(avg_y) - 1)
-                elif not game_state.has_wall(int(avg_x) , int(avg_y) - 1):
-                    return (int(avg_x) , int(avg_y) - 1)
-                elif not game_state.has_wall(int(avg_x) + 1 , int(avg_y) - 1):
-                    return (int(avg_x) + 1 , int(avg_y) - 1)
-            return (int(avg_x) , int(avg_y))
-            
-        def avg_of_two_pos(pos1, pos2):
-            total_x = pos1[0] + pos2[0]
-            total_y = pos1[1] + pos2[1]
-            return (total_x*0.5, total_y*0.5)
-
-        retreat_threshold = 5 + enemy_scared_factor*0.2
-
-        retreat_mode = 9999999 if current_agent_state.num_carrying >= retreat_threshold else 0
-
-        double_attack = 1 if all_pacman_on_team() else 0
 
         features['distance_to_food'] = min_distance_food
-        features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
-        features["remaining_capsules"] = len(capsules_list)
-        features["closest_enemy_dist"] = closestEnemyDist
+        features["distance_to_largest_food_island"] = distance_from_island(self, get_largest_food_island(self), succ_pos)
+        features["closest_enemy_dist"] = closest_enemy_distance
         features["remaining_food"] = len(food_list)
-        features["return_urgency"] = -getDistFromMiddle(self.index)*retreat_mode
+        features["return_urgency"] = -getDistFromMiddle(self, self.index, successor)*retreat_mode
         features['successor_score'] = self.get_score(successor)
-        features["spread_tendency"] = get_buddy_distance()*double_attack
+        features["spread_tendency"] = self.get_maze_distance(succ_pos,teammate_position)*double_attack
         features['num_invaders'] = len(invaders)
-        features["capsule_middle_distance"] = self.get_maze_distance(get_capsule_middle_point(),succ_pos) if any_pacman_from_enemies() and len(teamCapsules) > 0 else 0
-        features["center_ownside_distance"] = self.get_maze_distance(get_your_half_center(),succ_pos) if self.active_profile == "defend" else 0
-        features["dont_die"] = -99999 if succ_pos == self.start else 0
-        features["anti_tweak"] = 1 if succ_pos in bad_positions else 0
-
-        #max_tweak_dist = 0
-        #for pos in bad_positions:
-        #    max_tweak_dist = max(self.get_maze_distance(succ_pos,pos),max_tweak_dist)
-        #features["anti-tweak"] = max_tweak_dist
-
-        if non_scared_ghosts:
-            dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts]
-            features["ghost_distance"] = min(dists)
-
-        if any_pacman_from_enemies() and len(invaders) > 0:
-            dists = []
-            dists = [self.get_maze_distance(succ_pos, a.get_position()) for a in invaders]
-            features['invader_distance'] = min(dists) if dists else 0
-        
-        if any_pacman_from_enemies() and len(invaders) == 0:
-            dist = None
-            if self.eaten_fooddot is not None:
-                dist = self.get_maze_distance(succ_pos, self.eaten_fooddot)
-            if dist is not None:
-                features['invader_distance'] = dist
-            else: features['invader_distance'] = 0
-
+        features["capsule_middle_distance"] = self.get_maze_distance(get_avg_position_from_list(self,teamCapsules, game_state),succ_pos) if any_pacman_from_enemies(self, game_state) and len(teamCapsules) > 0 else 0
+        features["center_ownside_distance"] = self.get_maze_distance(get_avg_position_from_list(self,food_list, game_state),succ_pos) if self.active_profile == "defend" else 0
+        features["dont_die"] = -999999 if succ_pos == self.start else 0
+        features["anti_stuck"] = 1 if succ_pos in bad_positions else 0
+        features["ghost_distance"] = min(non_scared_distances)
+        features["invader_distance"] = get_invader_distance(self,succ_pos,game_state, invaders)
         features["barely_evade"] = 1 if features['invader_distance'] == 1 and is_scared else 0
+        features["no_dead_end"] = check_for_dead_end(self,succ_pos,succes_agent_state,non_scared_ghosts,features)
 
         if action == Directions.STOP:
             features['stop'] = 1 if not bad_positions else 2000
 
         rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
-        if action == rev: features['reverse'] = 10 if not bad_positions else 100000    
-
-        for dead_path in self.dead_paths:
-            if succ_pos in dead_path and succes_agent_state.is_pacman:
-                #print(dead_path)
-                #print(features["ghost_distance"],len(dead_path))
-                if non_scared_ghosts and features["ghost_distance"] <= len(dead_path):
-                    features["no_dead_end"] = -99999999
-
+        if action == rev: features['reverse'] = 1 if not bad_positions else 10    
 
         ## determine what profile will be used
-        if should_i_defend() and any_pacman_from_enemies():
+        if should_i_defend(self, game_state, teammate_idx, invader_pos, curr_pos, teammate_position, successor) and any_pacman_from_enemies(self, game_state):
             self.active_profile = "defend"
         else:
             self.active_profile = "attack"
