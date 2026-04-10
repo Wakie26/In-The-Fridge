@@ -571,19 +571,37 @@ def get_midline(agent, game_state):
         if not game_state.has_wall(agent.x_mid,y):
             agent.midline.append((agent.x_mid,y))
 
-def get_invader_distance(agent, succ_pos, game_state, invaders):
+def get_invader_distance(agent, succ_pos, game_state, invaders, features):
     """
     returns the distance to the nearest invader. If there are no detected invaders, then returns agent.eaten_fooddot. If there is no eaten fooddot, then returns 0.
     Always returns an integer.
     """
-    if not invaders or not any_pacman_from_enemies(agent,game_state):
-        return 0
-    
-    ## this part may look weird: first set distance to eaten food dot if we find one. Then we set it to smallest invader distance if it is available, otherwise we leave it.
-    distance = agent.get_maze_distance(agent.eaten_fooddot, succ_pos) if agent.eaten_fooddot else None
-    distance = min([agent.get_maze_distance(succ_pos,inv.get_position()) for inv in invaders]) if invaders else distance
-
-    return distance if distance else 0
+    if any_pacman_from_enemies(agent, game_state) and len(invaders) > 0:
+            dists = []
+            dists = [agent.get_maze_distance(succ_pos, a.get_position()) for a in invaders]
+            return min(dists) if dists else 0
+        
+    if any_pacman_from_enemies(agent, game_state) and len(invaders) == 0:
+        dist = None
+        if agent.eaten_fooddot is not None:
+            dist = agent.get_maze_distance(succ_pos, agent.eaten_fooddot)
+            
+        if dist is not None:
+            return dist
+        else:
+            return 0
+        
+    return 0
+        
+    #if not invaders or not any_pacman_from_enemies(agent,game_state):
+    #    return 0
+    #
+    #
+    ### this part may look weird: first set distance to eaten food dot if we find one. Then we set it to smallest invader distance if it is available, otherwise we leave it.
+    #distance = agent.get_maze_distance(agent.eaten_fooddot, succ_pos) if agent.eaten_fooddot else None
+    #distance = min([agent.get_maze_distance(succ_pos,inv.get_position()) for inv in invaders]) if invaders else distance
+    #    
+    #return distance if distance else 0
 
 def check_for_dead_end(agent, succ_pos, succes_agent_state, non_scared_ghosts, features):
     """
@@ -787,7 +805,7 @@ class ApproximateFridgeAgent(CaptureAgent):
         features["dont_die"] = -999999 if succ_pos == self.start else 0
         features["anti_stuck"] = 1 if succ_pos in bad_positions else 0
         features["ghost_distance"] = min(non_scared_distances)
-        features["invader_distance"] = get_invader_distance(self,succ_pos,game_state, invaders)
+        features["invader_distance"] = get_invader_distance(self,succ_pos,game_state, invaders, features)
         features["barely_evade"] = 1 if features['invader_distance'] == 1 and is_scared else 0
         features["no_dead_end"] = check_for_dead_end(self,succ_pos,succes_agent_state,non_scared_ghosts,features)
 
@@ -1022,7 +1040,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         features["dont_die"] = -999999 if succ_pos == self.start else 0
         features["anti_stuck"] = 1 if succ_pos in bad_positions else 0
         features["ghost_distance"] = min(non_scared_distances)
-        features["invader_distance"] = get_invader_distance(self,succ_pos,game_state, invaders)
+        features["invader_distance"] = get_invader_distance(self,succ_pos,game_state, invaders, features)
         features["barely_evade"] = 1 if features['invader_distance'] == 1 and is_scared else 0
         features["no_dead_end"] = check_for_dead_end(self,succ_pos,succes_agent_state,non_scared_ghosts,features)
 
