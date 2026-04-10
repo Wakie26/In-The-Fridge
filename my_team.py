@@ -396,10 +396,12 @@ def get_all_dead_paths(agent, game_state):
         dead_paths.append(dead_list)
     return dead_paths
 
-def get_closest_enemy_distance(agent, game_state):
+def get_closest_enemy_distance(agent, game_state, successor):
     """
     returns the distance (int) to closest enemy agent (with noise)
     """
+    enemiesList = agent.get_opponents(successor)
+    agentDistances =  successor.get_agent_distances()
     enemyDistances = []
     enemyStates = []
     closestEnemyDist = float("+inf")
@@ -412,7 +414,7 @@ def get_closest_enemy_distance(agent, game_state):
         if enemyDistances[index] < closestEnemyDist:
             closestEnemyDist = enemyDistances[index]
 
-    closestEnemyDist = min(enemyDistances)
+    return min(enemyDistances)
 
 def get_teammate_index(agent, game_state):
     """
@@ -757,7 +759,7 @@ class ApproximateFridgeAgent(CaptureAgent):
         scared_timer = succes_agent_state.scared_timer
         is_scared = scared_timer > 0
 
-        closest_enemy_distance = get_closest_enemy_distance(self,successor)
+        closest_enemy_distance = get_closest_enemy_distance(self,game_state,successor)
 
         enemy_states = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
         enemy_scared_timers = [enemy.scared_timer for enemy in enemy_states]
@@ -992,7 +994,7 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         scared_timer = succes_agent_state.scared_timer
         is_scared = scared_timer > 0
 
-        closest_enemy_distance = get_closest_enemy_distance(self,successor)
+        closest_enemy_distance = get_closest_enemy_distance(self,game_state,successor)
 
         enemy_states = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
         enemy_scared_timers = [enemy.scared_timer for enemy in enemy_states]
