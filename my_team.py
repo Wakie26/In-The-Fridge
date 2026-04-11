@@ -197,72 +197,6 @@ class DefensiveReflexAgent(ReflexCaptureAgent):
         return {'num_invaders': -1000, 'on_defense': 100, 'invader_distance': -10, 'stop': -100, 'reverse': -2}
     
 ## STUDENT ADDITIONS START HERE
-"""
-strategy notes:
-
-different profiles:
-
-    3 options:
-        -0 attackers
-            -distractor spy strategy (both far from border)
-                -> distractor approaches defenders and tries to lure them away from the spy
-
-            - snag and deep search strat (one very near to border)
-                -> one snag agent, one deep attack agent
-
-        -1 attacker
-                 -bait and camp
-                -> one island patroller, one attack
-
-        -2 attacker
-            - guard and chaser
-                -> guard stays around powerup
-                -> chaser hunts down attacker nearest to border
-
-    -defensive:
-        one pellet guard 
-        one chaser
-        island patrol (if there is a large island, stay around here)
-        flanking strategy
-            -> if just one enemy on our side, and both defenders, then flank the opponent
-
-    -offensive:
-        return after certain threshold
-        distractor method
-        snagging strategy (eat quick dots near border when defenders are at their spawn)
-        ignore defenders if powered up
-        
-heuristics
-
-    crosspoint of two circles = position of enemy (wigth noise)
-        -> sample this multiple times and average it
-        
-    start analysis:
-        -> get maze layout
-        -> get powerup locations
-        -> get food dots
-
-    defensive:
-        -enemy bounties (how much food dots they have eaten)
-        -enemy distance
-        -enemy distance from powerup
-        -distance from powerup
-        -is enemy powered up?
-        -enemy distance from their home
-        -food islands distance (island = neighboring food dots)
-        -food island size
-
-    offensive:
-        -food islands distance (island = neighboring food dots)
-        -food island size
-        -enemy distance
-        -distance from home
-        -is powered up?
-        -distance from powerup
-        -what is my bounty?
-        -remaining powerup time
-"""
-
 
 ## functions for creating features  
 def get_neighbor_data(x, y, data_matrix, neighbor_selection):
@@ -589,32 +523,13 @@ def get_invader_distance(agent, succ_pos, game_state, invaders, features):
     returns the distance to the nearest invader. If there are no detected invaders, then returns agent.eaten_fooddot. If there is no eaten fooddot, then returns 0.
     Always returns an integer.
     """
-    if any_pacman_from_enemies(agent, game_state) and len(invaders) > 0:
-            dists = []
-            dists = [agent.get_maze_distance(succ_pos, a.get_position()) for a in invaders]
-            return min(dists) if dists else 0
-        
-    if any_pacman_from_enemies(agent, game_state) and len(invaders) == 0:
-        dist = None
-        if agent.eaten_fooddot is not None:
-            dist = agent.get_maze_distance(succ_pos, agent.eaten_fooddot)
-            
-        if dist is not None:
-            return dist
-        else:
-            return 0
-        
-    return 0
-        
-    #if not invaders or not any_pacman_from_enemies(agent,game_state):
-    #    return 0
-    #
-    #
-    ### this part may look weird: first set distance to eaten food dot if we find one. Then we set it to smallest invader distance if it is available, otherwise we leave it.
-    #distance = agent.get_maze_distance(agent.eaten_fooddot, succ_pos) if agent.eaten_fooddot else None
-    #distance = min([agent.get_maze_distance(succ_pos,inv.get_position()) for inv in invaders]) if invaders else distance
-    #    
-    #return distance if distance else 0
+    if not any_pacman_from_enemies(agent, game_state):
+        return 0
+
+    dist = agent.get_maze_distance(succ_pos, agent.eaten_fooddot) if agent.eaten_fooddot else None
+    dist = min([agent.get_maze_distance(succ_pos, a.get_position()) for a in invaders]) if invaders else 0
+    
+    return dist
 
 def check_for_dead_end(agent, succ_pos, succes_agent_state, non_scared_ghosts, features):
     """
@@ -672,6 +587,103 @@ def should_i_defend(agent, game_state, teammate_idx, invader_pos, curr_pos, team
         else:
             return not closest_to_pacman(agent,teammate_position, curr_pos, invader_pos) if invader_pos else closest_to_midline(agent,teammate_idx, successor)
 
+def get_agent_features(agent, game_state, action):
+    features = util.Counter()
+    #agent.debug_clear()
+
+    ## variables
+    successor = agent.get_successor(game_state, action)
+    current_agent_state = game_state.data.agent_states[agent.index]
+    succes_agent_state = successor.data.agent_states[agent.index]
+    curr_pos = current_agent_state.get_position()
+    succ_pos = succes_agent_state.get_position()
+
+    time_left = game_state.data.timeleft
+    turns_left = int(time_left/4)
+    scared_timer = succes_agent_state.scared_timer
+    is_scared = scared_timer > 0
+
+    closest_enemy_distance = get_closest_enemy_distance(agent,game_state,successor)
+
+    enemy_states = [successor.get_agent_state(i) for i in agent.get_opponents(successor)]
+    enemy_scared_timers = [enemy.scared_timer for enemy in enemy_states]
+    enemy_scared_factor = sum(enemy_scared_timers)/len(enemy_scared_timers)
+
+    invaders = [a for a in enemy_states if a.is_pacman and a.get_position() is not None]
+    ghosts = [a for a in enemy_states if not a.is_pacman and a.get_position() is not None]
+    scared_ghosts = [enemy for enemy in enemy_states if not enemy.is_pacman and enemy.scared_timer > 0]
+    non_scared_ghosts = [a for a in ghosts if a.scared_timer == 0]
+    non_scared_distances = [agent.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts] if non_scared_ghosts else [0]
+    teamCapsules = agent.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
+    CurrentTeamFood = agent.get_food_you_are_defending(game_state) ## matrix with true/false
+    
+    teammate_idx = get_teammate_index(agent,game_state)
+    teammate_position = game_state.get_agent_position(teammate_idx)
+            
+    invader_pos = get_missing_food(agent,CurrentTeamFood)
+
+    previous_positions = get_prev_positions(agent)
+    bad_positions = get_bad_positions(previous_positions)
+
+    food_matrix = agent.get_food(successor)
+    food_list = food_matrix.as_list()
+    min_distance_food = min([agent.get_maze_distance(succ_pos, food) for food in food_list])
+    update_food_islands(agent, curr_pos, food_list, food_matrix)
+
+    capsules_list = agent.get_capsules(successor)
+    min_distance_cap = min([agent.get_maze_distance(succ_pos, cap) for cap in capsules_list]) if len(capsules_list) > 0 else 0
+    
+    check_for_capsule_consumption(agent,capsules_list, time_left)
+    powerup_deadline = agent.most_recent_capsule_consumption - 40 if agent.most_recent_capsule_consumption > 0 else 100000
+    powerup_remaining_time = get_powerup_deadline(agent,scared_ghosts, turns_left, powerup_deadline)
+        
+    no_dangerghosts = 5 if not non_scared_ghosts else 0
+    retreat_threshold = 5 + enemy_scared_factor*0.2 + no_dangerghosts
+    
+    retreat_mode = 1 if current_agent_state.num_carrying >= retreat_threshold else 0
+    double_attack = 1 if all_pacman_on_team(agent, game_state) else 0
+
+    if powerup_remaining_time > 0:
+        if powerup_remaining_time <= min_distance_cap:
+            features['distance_to_capsule'] = min_distance_cap
+        else:
+            features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
+        features["remaining_capsules"] = -len(capsules_list)
+    else:
+        features["remaining_capsules"] = len(capsules_list)
+        features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
+        
+
+    features['distance_to_food'] = min_distance_food
+    features["distance_to_largest_food_island"] = distance_from_island(agent, agent.largest_island, succ_pos)
+    features["closest_enemy_dist"] = closest_enemy_distance
+    features["remaining_food"] = len(food_list)
+    features["return_urgency"] = -getDistFromMiddle(agent, agent.index, successor)*retreat_mode
+    features['successor_score'] = agent.get_score(successor)
+    features["spread_tendency"] = agent.get_maze_distance(succ_pos,teammate_position)*double_attack
+    features['num_invaders'] = len(invaders)
+    features["capsule_middle_distance"] = agent.get_maze_distance(get_avg_position_from_list(agent,teamCapsules, game_state),succ_pos) if any_pacman_from_enemies(agent, game_state) and len(teamCapsules) > 0 else 0
+    features["center_ownside_distance"] = agent.get_maze_distance(get_avg_position_from_list(agent,food_list, game_state),succ_pos) if agent.active_profile == "defend" else 0
+    features["dont_die"] = -999999 if succ_pos == agent.start else 0
+    features["anti_stuck"] = 1 if succ_pos in bad_positions else 0
+    features["ghost_distance"] = min(non_scared_distances)
+    features["invader_distance"] = get_invader_distance(agent,succ_pos,game_state, invaders, features)
+    features["barely_evade"] = 1 if features['invader_distance'] == 1 and is_scared else 0
+    features["no_dead_end"] = check_for_dead_end(agent,succ_pos,succes_agent_state,non_scared_ghosts,features)
+
+    if action == Directions.STOP:
+        features['stop'] = 1 if not bad_positions else 2000
+
+    rev = Directions.REVERSE[game_state.get_agent_state(agent.index).configuration.direction]
+    if action == rev: features['reverse'] = 1 if not bad_positions else 10    
+
+    ## determine what profile will be used
+    if should_i_defend(agent, game_state, teammate_idx, invader_pos, curr_pos, teammate_position, successor) and any_pacman_from_enemies(agent, game_state):
+        agent.active_profile = "defend"
+    else:
+        agent.active_profile = "attack"
+
+    return features
 
 class ApproximateFridgeAgent(CaptureAgent):
 
@@ -689,13 +701,14 @@ class ApproximateFridgeAgent(CaptureAgent):
                             'capsule_middle_distance': -7.052131332296071e+121, 
                             'center_ownside_distance': -9.49522786507858e+121, 
                             'dont_die': 2.712895094168435e+125, 
-                            'anti_tweak': -2.7125730970237865e+120, 
+                            'anti_stuck': -2.7125730970237865e+120, 
                             'ghost_distance': -1.3195836269405794e+113, 
                             'invader_distance': -9.766345559279176e+121, 
                             'barely_evade': 0.0, 
                             'stop': -5.425146194047573e+123, 
                             'reverse': -2.7129222275061062e+125, 
-                            'no_dead_end': 0}
+                            'no_dead_end': 0,
+                            'distance_to_largest_food_island' : 0}
         
         self.discount = 0.5 ## falloff
         self.alpha = 0.01 ## learning rate
@@ -722,8 +735,8 @@ class ApproximateFridgeAgent(CaptureAgent):
         self.start = game_state.get_agent_position(self.index)
         CaptureAgent.register_initial_state(self, game_state)
         self.distancer.get_maze_distances()
-
         self.active_profile = "attack"
+        self.weights = self.prev_weights
 
         self.most_recent_capsule_consumption = 0
         self.clock = 0
@@ -734,107 +747,12 @@ class ApproximateFridgeAgent(CaptureAgent):
         self.width = self.walls.width
         self.height = self.walls.height
         self.x_mid = int(self.width/2) if not self.red else int(self.width/2) - 1
-        self.get_midline(game_state)
+        get_midline(self, game_state)
 
-        self.dead_paths = self.get_all_dead_paths(game_state)
+        self.dead_paths = get_all_dead_paths(self,game_state)
 
     def get_features(self, game_state, action):
-        features = util.Counter()
-        #self.debug_clear()
-
-        ## variables
-        successor = self.get_successor(game_state, action)
-        current_agent_state = game_state.data.agent_states[self.index]
-        succes_agent_state = successor.data.agent_states[self.index]
-        curr_pos = current_agent_state.get_position()
-        succ_pos = succes_agent_state.get_position()
-
-        time_left = game_state.data.timeleft
-        turns_left = int(time_left/4)
-        scared_timer = succes_agent_state.scared_timer
-        is_scared = scared_timer > 0
-
-        closest_enemy_distance = get_closest_enemy_distance(self,game_state,successor)
-
-        enemy_states = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
-        enemy_scared_timers = [enemy.scared_timer for enemy in enemy_states]
-        enemy_scared_factor = sum(enemy_scared_timers)/len(enemy_scared_timers)
-
-        invaders = [a for a in enemy_states if a.is_pacman and a.get_position() is not None]
-        ghosts = [a for a in enemy_states if not a.is_pacman and a.get_position() is not None]
-        scared_ghosts = [enemy for enemy in enemy_states if not enemy.is_pacman and enemy.scared_timer > 0]
-        non_scared_ghosts = [a for a in ghosts if a.scared_timer == 0]
-        non_scared_distances = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts] if non_scared_ghosts else [0]
-        teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
-        CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
-        
-        teammate_idx = get_teammate_index(self,game_state)
-        teammate_position = game_state.get_agent_position(teammate_idx)
-                
-        invader_pos = get_missing_food(self,CurrentTeamFood)
-
-        previous_positions = get_prev_positions(self)
-        bad_positions = get_bad_positions(previous_positions)
-
-        food_matrix = self.get_food(successor)
-        food_list = food_matrix.as_list()
-        min_distance_food = min([self.get_maze_distance(succ_pos, food) for food in food_list])
-        update_food_islands(self, curr_pos, food_list, food_matrix)
-
-        capsules_list = self.get_capsules(successor)
-        min_distance_cap = min([self.get_maze_distance(succ_pos, cap) for cap in capsules_list]) if len(capsules_list) > 0 else 0
-        
-        check_for_capsule_consumption(self,capsules_list, time_left)
-        powerup_deadline = self.most_recent_capsule_consumption - 40 if self.most_recent_capsule_consumption > 0 else 100000
-        powerup_remaining_time = get_powerup_deadline(self,scared_ghosts, turns_left, powerup_deadline)
-            
-        no_dangerghosts = 5 if not non_scared_ghosts else 0
-        retreat_threshold = 5 + enemy_scared_factor*0.2 + no_dangerghosts
-        
-        retreat_mode = 1 if current_agent_state.num_carrying >= retreat_threshold else 0
-        double_attack = 1 if all_pacman_on_team(self, game_state) else 0
-
-        if powerup_remaining_time > 0:
-            if powerup_remaining_time <= min_distance_cap:
-                features['distance_to_capsule'] = min_distance_cap
-            else:
-                features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
-            features["remaining_capsules"] = -len(capsules_list)
-        else:
-            features["remaining_capsules"] = len(capsules_list)
-            features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
-            
-
-        features['distance_to_food'] = min_distance_food
-        features["distance_to_largest_food_island"] = distance_from_island(self, self.largest_island, succ_pos)
-        features["closest_enemy_dist"] = closest_enemy_distance
-        features["remaining_food"] = len(food_list)
-        features["return_urgency"] = -getDistFromMiddle(self, self.index, successor)*retreat_mode
-        features['successor_score'] = self.get_score(successor)
-        features["spread_tendency"] = self.get_maze_distance(succ_pos,teammate_position)*double_attack
-        features['num_invaders'] = len(invaders)
-        features["capsule_middle_distance"] = self.get_maze_distance(get_avg_position_from_list(self,teamCapsules, game_state),succ_pos) if any_pacman_from_enemies(self, game_state) and len(teamCapsules) > 0 else 0
-        features["center_ownside_distance"] = self.get_maze_distance(get_avg_position_from_list(self,food_list, game_state),succ_pos) if self.active_profile == "defend" else 0
-        features["dont_die"] = -999999 if succ_pos == self.start else 0
-        features["anti_stuck"] = 1 if succ_pos in bad_positions else 0
-        features["ghost_distance"] = min(non_scared_distances)
-        features["invader_distance"] = get_invader_distance(self,succ_pos,game_state, invaders, features)
-        features["barely_evade"] = 1 if features['invader_distance'] == 1 and is_scared else 0
-        features["no_dead_end"] = check_for_dead_end(self,succ_pos,succes_agent_state,non_scared_ghosts,features)
-
-        if action == Directions.STOP:
-            features['stop'] = 1 if not bad_positions else 2000
-
-        rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
-        if action == rev: features['reverse'] = 1 if not bad_positions else 10    
-
-        ## determine what profile will be used
-        if should_i_defend(self, game_state, teammate_idx, invader_pos, curr_pos, teammate_position, successor) and any_pacman_from_enemies(self, game_state):
-            self.active_profile = "defend"
-        else:
-            self.active_profile = "attack"
-
-        return features
+        return get_agent_features(self,game_state,action)
 
     def choose_action(self, game_state):
         """
@@ -974,108 +892,13 @@ class SmartFridgeAgent(ReflexCaptureAgent):
         self.dead_paths = get_all_dead_paths(self,game_state)
 
     def get_features(self, game_state, action):
-        features = util.Counter()
-        #self.debug_clear()
-
-        ## variables
-        successor = self.get_successor(game_state, action)
-        current_agent_state = game_state.data.agent_states[self.index]
-        succes_agent_state = successor.data.agent_states[self.index]
-        curr_pos = current_agent_state.get_position()
-        succ_pos = succes_agent_state.get_position()
-
-        time_left = game_state.data.timeleft
-        turns_left = int(time_left/4)
-        scared_timer = succes_agent_state.scared_timer
-        is_scared = scared_timer > 0
-
-        closest_enemy_distance = get_closest_enemy_distance(self,game_state,successor)
-
-        enemy_states = [successor.get_agent_state(i) for i in self.get_opponents(successor)]
-        enemy_scared_timers = [enemy.scared_timer for enemy in enemy_states]
-        enemy_scared_factor = sum(enemy_scared_timers)/len(enemy_scared_timers)
-
-        invaders = [a for a in enemy_states if a.is_pacman and a.get_position() is not None]
-        ghosts = [a for a in enemy_states if not a.is_pacman and a.get_position() is not None]
-        scared_ghosts = [enemy for enemy in enemy_states if not enemy.is_pacman and enemy.scared_timer > 0]
-        non_scared_ghosts = [a for a in ghosts if a.scared_timer == 0]
-        non_scared_distances = [self.get_maze_distance(succ_pos, a.get_position()) for a in non_scared_ghosts] if non_scared_ghosts else [0]
-        teamCapsules = self.get_capsules_you_are_defending(game_state) ## list[(x,y)] caps on our side
-        CurrentTeamFood = self.get_food_you_are_defending(game_state) ## matrix with true/false
-        
-        teammate_idx = get_teammate_index(self,game_state)
-        teammate_position = game_state.get_agent_position(teammate_idx)
-                
-        invader_pos = get_missing_food(self,CurrentTeamFood)
-
-        previous_positions = get_prev_positions(self)
-        bad_positions = get_bad_positions(previous_positions)
-
-        food_matrix = self.get_food(successor)
-        food_list = food_matrix.as_list()
-        min_distance_food = min([self.get_maze_distance(succ_pos, food) for food in food_list])
-        update_food_islands(self, curr_pos, food_list, food_matrix)
-
-        capsules_list = self.get_capsules(successor)
-        min_distance_cap = min([self.get_maze_distance(succ_pos, cap) for cap in capsules_list]) if len(capsules_list) > 0 else 0
-        
-        check_for_capsule_consumption(self,capsules_list, time_left)
-        powerup_deadline = self.most_recent_capsule_consumption - 40 if self.most_recent_capsule_consumption > 0 else 100000
-        powerup_remaining_time = get_powerup_deadline(self,scared_ghosts, turns_left, powerup_deadline)
-            
-        no_dangerghosts = 5 if not non_scared_ghosts else 0
-        retreat_threshold = 5 + enemy_scared_factor*0.2 + no_dangerghosts
-        
-        retreat_mode = 1 if current_agent_state.num_carrying >= retreat_threshold else 0
-        double_attack = 1 if all_pacman_on_team(self, game_state) else 0
-
-        if powerup_remaining_time > 0:
-            if powerup_remaining_time <= min_distance_cap:
-                features['distance_to_capsule'] = min_distance_cap
-            else:
-                features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
-            features["remaining_capsules"] = -len(capsules_list)
-        else:
-            features["remaining_capsules"] = len(capsules_list)
-            features['distance_to_capsule'] = min_distance_cap if powerup_remaining_time == 0 else min_distance_cap/powerup_remaining_time
-            
-
-        features['distance_to_food'] = min_distance_food
-        features["distance_to_largest_food_island"] = distance_from_island(self, self.largest_island, succ_pos)
-        features["closest_enemy_dist"] = closest_enemy_distance
-        features["remaining_food"] = len(food_list)
-        features["return_urgency"] = -getDistFromMiddle(self, self.index, successor)*retreat_mode
-        features['successor_score'] = self.get_score(successor)
-        features["spread_tendency"] = self.get_maze_distance(succ_pos,teammate_position)*double_attack
-        features['num_invaders'] = len(invaders)
-        features["capsule_middle_distance"] = self.get_maze_distance(get_avg_position_from_list(self,teamCapsules, game_state),succ_pos) if any_pacman_from_enemies(self, game_state) and len(teamCapsules) > 0 else 0
-        features["center_ownside_distance"] = self.get_maze_distance(get_avg_position_from_list(self,food_list, game_state),succ_pos) if self.active_profile == "defend" else 0
-        features["dont_die"] = -999999 if succ_pos == self.start else 0
-        features["anti_stuck"] = 1 if succ_pos in bad_positions else 0
-        features["ghost_distance"] = min(non_scared_distances)
-        features["invader_distance"] = get_invader_distance(self,succ_pos,game_state, invaders, features)
-        features["barely_evade"] = 1 if features['invader_distance'] == 1 and is_scared else 0
-        features["no_dead_end"] = check_for_dead_end(self,succ_pos,succes_agent_state,non_scared_ghosts,features)
-
-        if action == Directions.STOP:
-            features['stop'] = 1 if not bad_positions else 2000
-
-        rev = Directions.REVERSE[game_state.get_agent_state(self.index).configuration.direction]
-        if action == rev: features['reverse'] = 1 if not bad_positions else 10    
-
-        ## determine what profile will be used
-        if should_i_defend(self, game_state, teammate_idx, invader_pos, curr_pos, teammate_position, successor) and any_pacman_from_enemies(self, game_state):
-            self.active_profile = "defend"
-        else:
-            self.active_profile = "attack"
-
-        return features
-        
+        return get_agent_features(self, game_state, action)
+    
     def get_weights(self, game_state, action):
         """
         returns a set of weights (dictionary) based on `self.active_profile`
         """
-
+        
         attack_profile = {
             "successor_score": 200,
             "remaining_food": -100,
