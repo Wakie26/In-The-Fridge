@@ -500,12 +500,7 @@ def update_food_islands(agent, curr_pos, food_list, food_matrix):
     if curr_pos == agent.start:
         agent.food_islands = get_food_islands(agent,food_list,food_matrix)
 
-    agent.largest_island = None
-    max_length = 0
-    for island in agent.food_islands:
-        if len(island) > max_length:
-            max_length = len(island)
-            agent.largest_island = island
+    agent.largest_island = get_largest_food_island(agent)
 
     largest_still_exists = False
     for pos in agent.largest_island:
