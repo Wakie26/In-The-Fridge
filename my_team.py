@@ -300,7 +300,11 @@ def BFS_walls(agent,start):
 
     neighbors = [(0, 1), (0, -1), (1, 0), (-1, 0)]
     
-    return breadth_first_search(start, stopcondition, agent.walls, neighbors, False, False)
+    return breadth_first_search(start, stopcondition=stopcondition,
+                                data_matrix=agent.walls,
+                                neighbor_selection=neighbors,
+                                expand_into_true=False,
+                                return_visited=False)
 
 def BFS_food(start, food_matrix):
         """
